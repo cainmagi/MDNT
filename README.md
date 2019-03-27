@@ -10,31 +10,31 @@ Still not available now, will implement in the future.
 
 Now we have such progress on the semi-product:
 
-- [] optimzers:
+- [ ] optimzers:
     - still working on it.
     - [x] Wrapped default optimizers.
-- [] layers:
+- [ ] layers:
     - [x] Tied dense layer for the symmetric autoencoder.
     - [x] Extened normalization layers.
     - [x] Modern convolutional layers.
     - [x] Modern transposed convolutional layers.
-    - []  Tied and modern transposed convolutional layers for the symmetric autoencoder.
-    - []  Residual layers (or blocks) and their transposed versions.
-    - []  Inception-v4 layers (or blocks) and their transposed versions.
-- [] data:
+    - [ ]  Tied and modern transposed convolutional layers for the symmetric autoencoder.
+    - [ ]  Residual layers (or blocks) and their transposed versions.
+    - [ ]  Inception-v4 layers (or blocks) and their transposed versions.
+- [ ] data:
     - [x] Basic h5py IO handles.
-    - []  Basic HDF5 IO handles.
-    - []  Basic CSV IO handles.
-    - []  Basic JSON IO handles.
-    - []  Data parsing utilities.
-- [] estimators:
-    - [] VGG16
-    - [] U-Net
-    - [] ResNet
-- [] functions:
-    - [] (loss):    Lovasz loss
-    - [] (metrics): IOU / Jaccard index
-    - [] (metrics): Pearson correlation coefficient
+    - [ ]  Basic HDF5 IO handles.
+    - [ ]  Basic CSV IO handles.
+    - [ ]  Basic JSON IO handles.
+    - [ ]  Data parsing utilities.
+- [ ] estimators:
+    - [ ] VGG16
+    - [ ] U-Net
+    - [ ] ResNet
+- [ ] functions:
+    - [ ] (loss):    Lovasz loss
+    - [ ] (metrics): IOU / Jaccard index
+    - [ ] (metrics): Pearson correlation coefficient
 
 ## Demos
 
