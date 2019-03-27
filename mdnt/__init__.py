@@ -14,6 +14,9 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.22 # 2019/3/26
+# Comments:
+#   Adjust the .data.h5py module to make it more generalized.
 # Version: 0.20 # 2019/3/26
 # Comments:
 #   Finish H5HGParser, H5SupSaver, H5GParser in .data

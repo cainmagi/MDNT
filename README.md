@@ -53,6 +53,10 @@ The following demos are working for denoising with MNIST data set.
 
 # Update records
 
+## 0.22 @ 03/26/2019
+
+Adjust the `.data.h5py` module to make it more generalized.
+
 ## 0.20 @ 03/26/2019
 
 1. Finish `H5HGParser`, `H5SupSaver`, `H5GParser` in `.data`

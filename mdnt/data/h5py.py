@@ -10,6 +10,11 @@
 # Warning:
 #   The standard tf dataset is proved to be incompatible with 
 #   tf-K architecture. We need to wait until tf fix the bug.
+# Version: 0.15 # 2019/3/26
+# Comments:
+#   1. Enable the config of H5SupSaver to be overriden.
+#   2. Change the behavior of H5GParser, and let the pre-
+#      processing function work with batches.
 # Version: 0.10 # 2019/3/26
 # Comments:
 #   Create this submodule.
@@ -60,16 +65,20 @@ class H5SupSaver:
         if self.logver > 0:
             print('Current configuration is:', self.__kwargs)
     
-    def dump(self, keyword, data):
+    def dump(self, keyword, data, **kwargs):
         '''
         Dump the dataset with a keyword into the file.
         Arguments:
             keyword: the keyword of the dumped dataset.
             data:    dataset, should be a numpy array.
+        Providing more configurations for `create_dataset` would override
+        the default configuration defined by self.config()
         '''
         if self.f is None:
             raise OSError('Should not dump data before opening a file.')
-        self.f.create_dataset(keyword, data=data, **self.__kwargs)
+        newkw = self.__kwargs.copy()
+        newkw.update(kwargs)
+        self.f.create_dataset(keyword, data=data, **newkw)
         if self.logver > 0:
             print('Dump {0} into the file. The data shape is {1}.'.format(keyword, data.shape))
     
@@ -236,6 +245,8 @@ class H5GParser:
             batchSize: number of samples in each batch.
             preprocfunc: this function would be added to the produced data
                          so that it could serve as a pre-processing tool.
+                         Note that this tool would process the batches
+                         produced by the parser.
         '''
         self.f = None
         if isinstance(keywords, str):
@@ -249,10 +260,7 @@ class H5GParser:
         self.size = self.__createSize()
         self.__indices = self.__indexDataset()
         self.__shuffle()
-        if preprocfunc is not None:
-            self.__mapfunc = lambda ind: preprocfunc(*self.__mapSingle(ind))
-        else:
-            self.__mapfunc = self.__mapSingle
+        self.__preprocfunc = preprocfunc
         self.__batchSize = batchSize
         
     def calSteps(self):
@@ -269,7 +277,7 @@ class H5GParser:
             bnum = 0
             getlist = []
             for i in self.__indices:
-                getlist.append(self.__mapfunc(i))
+                getlist.append(self.__mapSingle(i))
                 bnum += 1
                 if bnum == self.__batchSize:
                     bnum = 0
@@ -279,8 +287,7 @@ class H5GParser:
                 yield self.__getlistStack(getlist)
             self.__shuffle()
     
-    @staticmethod
-    def __getlistStack(getlist):
+    def __getlistStack(self, getlist):
         numout = len(getlist[0])
         res = []
         for j in range(numout):
@@ -290,7 +297,10 @@ class H5GParser:
                 res[j].append(smp[j])
         for j in range(numout):
             res[j] = np.stack(res[j], axis=0)
-        return tuple(res)
+        if self.__preprocfunc is not None:
+            return self.__preprocfunc(*res)
+        else:
+            return tuple(res)
         
     def __creatDataSets(self):
         '''

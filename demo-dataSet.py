@@ -25,6 +25,9 @@
 # python demo-dataSet.py -m ts -s dataset -rd model-...
 # ```
 # to perform the test.
+# Version: 1.10 # 2019/3/26
+# Comments:
+#   Change the method of pre-processing data.
 # Version: 1.00 # 2019/3/26
 # Comments:
 #   Create this project.
@@ -191,8 +194,11 @@ if __name__ == '__main__':
         setSeed(args.seed)
     
     def preproc(x):
+        '''
+        Now we have changed the preprocessing function so that its input should be batches.
+        '''
         x = x / 255.
-        x = x.reshape(28, 28, 1)
+        x = x.reshape(len(x), 28, 28, 1)
         # Add noise
         noise_factor = 0.5
         x_noisy = x + noise_factor * np.random.normal(loc=0.0, scale=1.0, size=x.shape)

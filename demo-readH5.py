@@ -27,6 +27,9 @@ os.chdir(sys.path[0])
 
 if __name__ == '__main__':
     def preproc(x, y):
+        '''
+        Now we have changed the preprocessing function so that its input should be batches.
+        '''
         x = x / 255.
         # Add noise
         noise_factor = 0.5
