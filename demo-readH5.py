@@ -37,7 +37,7 @@ if __name__ == '__main__':
         return (x_noisy,)
         
     P = mdnt.data.H5GParser('mnist-test', ['X', 'Y'],  batchSize=32, preprocfunc=preproc)
-    dp = P.getDataset()
+    dp = iter(P)
     
     for i in range(10):
         value = next(dp)

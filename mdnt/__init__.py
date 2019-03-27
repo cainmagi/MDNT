@@ -14,6 +14,11 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.23 # 2019/3/26
+# Comments:
+#   1. Use keras.Sequence() to redefine H5GParser and 
+#      H5HGParser.
+#   2. Add compatible check.
 # Version: 0.22 # 2019/3/26
 # Comments:
 #   Adjust the .data.h5py module to make it more generalized.

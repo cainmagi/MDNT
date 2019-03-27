@@ -53,6 +53,11 @@ The following demos are working for denoising with MNIST data set.
 
 # Update records
 
+## 0.23 @ 03/27/2019
+
+1. Use `keras.Sequence()` to redefine `H5GParser` and `H5HGParser`.
+2. Add compatible check.
+
 ## 0.22 @ 03/26/2019
 
 Adjust the `.data.h5py` module to make it more generalized.

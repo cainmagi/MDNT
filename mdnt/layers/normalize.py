@@ -11,6 +11,9 @@
 # See here to learn the differences between different kinds of
 # normalizations:
 #     https://arxiv.org/abs/1803.08494
+# Version: 0.11 # 2019/3/27
+# Comments:
+#   Add compatible support.
 # Version: 0.10 # 2019/3/24
 # Comments:
 #   Create this submodule.
@@ -22,8 +25,13 @@ from tensorflow.python.keras import constraints
 from tensorflow.python.keras import initializers
 from tensorflow.python.keras import regularizers
 from tensorflow.python.keras.engine.base_layer import Layer
-from tensorflow.python.keras.engine.input_spec import InputSpec
 from tensorflow.python.ops import nn_impl
+
+from .. import compact
+if compact.COMPATIBLE_MODE:
+    from tensorflow.python.keras.engine.base_layer import InputSpec
+else:
+    from tensorflow.python.keras.engine.input_spec import InputSpec
 
 class InstanceNormalization(Layer):
     """Instance normalization layer.

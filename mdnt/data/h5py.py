@@ -10,6 +10,10 @@
 # Warning:
 #   The standard tf dataset is proved to be incompatible with 
 #   tf-K architecture. We need to wait until tf fix the bug.
+# Version: 0.18 # 2019/3/27
+# Comments:
+#   1. Upgrade the generators (parsers) to keras.util version.
+#   2. Make the suffle optional for parsers.
 # Version: 0.15 # 2019/3/26
 # Comments:
 #   1. Enable the config of H5SupSaver to be overriden.
@@ -100,7 +104,7 @@ class H5SupSaver:
             self.f.close()
         self.f = None
         
-class H5HGParser:
+class H5HGParser(tf.keras.utils.Sequence):
     '''Homogeneously parsing .h5 file by h5py module
     This class allows users to feed one .h5 file, and convert it to 
     tf.data.Dataset. The realization could be described as:
@@ -113,66 +117,55 @@ class H5HGParser:
     supports reading both single set and multiple sets.
     Note that all datasets in the same file should share the same shape.
     '''
-    def __init__(self, fileName, batchSize=32):
+    def __init__(self, fileName, batchSize=32, shuffle=True):
         '''
         Create the parser and its h5py file handle.
         Arguments:
             fileName: the data path of the file (could be without postfix).
             batchSize: number of samples in each batch.
+            shuffle: if on, shuffle the data set at the end of each epoch.
         '''
         self.f = None
         if (not os.path.isfile(fileName)) and (os.path.isfile(fileName+'.h5')):
             fileName += '.h5'
         self.f = h5py.File(fileName, 'r')
         self.size = self.__createSize()
+        self.shuffle = shuffle
         if self.mutlipleMode:
             self.__indices, self.__secInd = self.__indexDataset()
-            self.__shuffle()
+            if shuffle:
+                self.__shuffle()
             self.__mapfunc = self.__mapMultiple
         else:
             self.__indices = self.__indexDataset()
-            self.__shuffle()
+            if shuffle:
+                self.__shuffle()
             self.__mapfunc = self.__mapSingle
         self.__batchSize = batchSize
-        
-    def getDataset(self):
-        '''
-        Define the generator
-        '''
-        if self.mutlipleMode:
-            while True: # Infinite loop
-                bnum = 0
-                getlist = []
-                for i in self.__indices:
-                    getlist.append(self.__mapfunc(self.__secInd[i]))
-                    bnum += 1
-                    if bnum == self.__batchSize:
-                        bnum = 0
-                        yield np.stack(getlist, axis=0)
-                        getlist.clear()
-                if bnum > 0:
-                    yield np.stack(getlist, axis=0)
-                self.__shuffle()
-        else:
-            while True: # Infinite loop
-                bnum = 0
-                getlist = []
-                for i in self.__indices:
-                    getlist.append(self.__mapfunc(i))
-                    bnum += 1
-                    if bnum == self.__batchSize:
-                        bnum = 0
-                        yield np.stack(getlist, axis=0)
-                        getlist.clear()
-                if bnum > 0:
-                    yield np.stack(getlist, axis=0)
-                self.__shuffle()
-                
-    def calSteps(self):
+    
+    def __len__(self):
         '''
         Automatically calculate the steps for iterate the whole dataset.
         '''
         return np.ceil(np.sum(self.size)/self.__batchSize).astype(np.int)
+        
+    def __getitem__(self, idx):
+        batchIndices = self.__indices[idx * self.__batchSize:(idx + 1) * self.__batchSize]
+        res = []
+        for ind in batchIndices:
+            if self.mutlipleMode:
+                res.append(self.__mapMultiple(self.__secInd[ind]))
+            else:
+                res.append(self.__mapSingle(ind))
+        res = np.stack(res, axis=0)
+        return res
+            
+    def on_epoch_end(self):
+        '''
+        Shuffle the data set according to the settings.
+        '''
+        if self.shuffle:
+            self.__shuffle()
     
     def __createSize(self):
         '''
@@ -221,7 +214,7 @@ class H5HGParser:
         dname = self.__dnameIndex
         return self.f[dname][index]
             
-class H5GParser:
+class H5GParser(tf.keras.utils.Sequence):
     '''Grouply parsing dataset
     This class allows users to feed one .h5 file, and convert it to 
     tf.data.Dataset. The realization could be described as:
@@ -236,18 +229,20 @@ class H5GParser:
             index dataset.
     Certainly, you could use this parser to load a single dataset.
     '''
-    def __init__(self, fileName, keywords, batchSize=32, preprocfunc=None):
+    def __init__(self, fileName, keywords, batchSize=32, shuffle=True, preprocfunc=None):
         '''
         Create the parser and its h5py file handle.
         Arguments:
             fileName: the data path of the file (could be without postfix).
             keywords: should be a list of keywords (or a single keyword).
             batchSize: number of samples in each batch.
+            shuffle: if on, shuffle the data set at the end of each epoch.
             preprocfunc: this function would be added to the produced data
                          so that it could serve as a pre-processing tool.
                          Note that this tool would process the batches
                          produced by the parser.
         '''
+        super(H5GParser, self).__init__()
         self.f = None
         if isinstance(keywords, str):
             self.keywords = (keywords,)
@@ -259,48 +254,41 @@ class H5GParser:
         self.__dsets = self.__creatDataSets()
         self.size = self.__createSize()
         self.__indices = self.__indexDataset()
-        self.__shuffle()
+        self.shuffle = shuffle
+        if shuffle:
+            self.__shuffle()
         self.__preprocfunc = preprocfunc
         self.__batchSize = batchSize
+        self.__dsize = len(self.__dsets)
         
-    def calSteps(self):
+    def __len__(self):
         '''
         Automatically calculate the steps for iterate the whole dataset.
         '''
         return np.ceil(np.sum(self.size)/self.__batchSize).astype(np.int)
         
-    def getDataset(self):
-        '''
-        Define the generator
-        '''
-        while True: # Infinite loop
-            bnum = 0
-            getlist = []
-            for i in self.__indices:
-                getlist.append(self.__mapSingle(i))
-                bnum += 1
-                if bnum == self.__batchSize:
-                    bnum = 0
-                    yield self.__getlistStack(getlist)
-                    getlist.clear()
-            if bnum > 0:
-                yield self.__getlistStack(getlist)
-            self.__shuffle()
-    
-    def __getlistStack(self, getlist):
-        numout = len(getlist[0])
+    def __getitem__(self, idx):
+        batchIndices = self.__indices[idx * self.__batchSize:(idx + 1) * self.__batchSize]
         res = []
-        for j in range(numout):
+        for j in range(self.__dsize):
             res.append([])
-        for smp in getlist:
-            for j in range(numout):
+        for ind in batchIndices:
+            smp = self.__mapSingle(ind)
+            for j in range(self.__dsize):
                 res[j].append(smp[j])
-        for j in range(numout):
+        for j in range(self.__dsize):
             res[j] = np.stack(res[j], axis=0)
         if self.__preprocfunc is not None:
             return self.__preprocfunc(*res)
         else:
             return tuple(res)
+            
+    def on_epoch_end(self):
+        '''
+        Shuffle the data set according to the settings.
+        '''
+        if self.shuffle:
+            self.__shuffle()
         
     def __creatDataSets(self):
         '''

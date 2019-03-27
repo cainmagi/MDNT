@@ -7,6 +7,9 @@
 #   python 3.6+
 #   tensorflow r1.13+
 # Extend the dense layer API with tied version.
+# Version: 0.11 # 2019/3/27
+# Comments:
+#   Add compatible support.
 # Version: 0.10 # 2019/3/23
 # Comments:
 #   Create this submodule.
@@ -23,11 +26,16 @@ from tensorflow.python.keras import constraints
 from tensorflow.python.keras import initializers
 from tensorflow.python.keras import regularizers
 from tensorflow.python.keras.engine.base_layer import Layer
-from tensorflow.python.keras.engine.input_spec import InputSpec
 from tensorflow.python.ops import gen_math_ops
 from tensorflow.python.ops import nn
 from tensorflow.python.ops import standard_ops
 from tensorflow.python.ops import variables
+
+from .. import compact
+if compact.COMPATIBLE_MODE:
+    from tensorflow.python.keras.engine.base_layer import InputSpec
+else:
+    from tensorflow.python.keras.engine.input_spec import InputSpec
 
 class DenseTied(Layer):
     """Tied densely-connected NN layer.

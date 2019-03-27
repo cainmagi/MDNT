@@ -25,6 +25,9 @@
 # python demo-dataSet.py -m ts -s dataset -rd model-...
 # ```
 # to perform the test.
+# Version: 1.10 # 2019/3/27
+# Comments:
+#   Use revised data parser to get batches.
 # Version: 1.10 # 2019/3/26
 # Comments:
 #   Change the method of pre-processing data.
@@ -220,18 +223,16 @@ if __name__ == '__main__':
         checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_loss:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
         parser_train = mdnt.data.H5GParser('mnist-train', ['X'],  batchSize=args.trainBatchNum, preprocfunc=preproc)
-        dataSet_train = parser_train.getDataset()
         parser_test = mdnt.data.H5GParser('mnist-test', ['X'],  batchSize=args.trainBatchNum, preprocfunc=preproc)
-        dataSet_test = parser_test.getDataset()
-        denoiser.fit(dataSet_train, steps_per_epoch=parser_train.calSteps(),
+        denoiser.fit(parser_train, steps_per_epoch=len(parser_train),
                     epochs=args.epoch,
-                    validation_data=dataSet_test, validation_steps=parser_test.calSteps(),
+                    validation_data=parser_test, validation_steps=len(parser_test),
                     callbacks=[checkpointer])
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
-        parser_test = mdnt.data.H5GParser('mnist-test', ['X'],  batchSize=args.testBatchNum, preprocfunc=preproc)
-        dataSet_test = parser_test.getDataset()
-        noisy, clean = next(dataSet_test)
+        parser_test = mdnt.data.H5GParser('mnist-test', ['X'],  batchSize=args.testBatchNum, shuffle=False, preprocfunc=preproc)
+        data_test = iter(parser_test)
+        noisy, clean = next(data_test)
         denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})
         denoiser.summary(line_length=90, positions=[.55, .85, .95, 1.])
         decoded_imgs = denoiser.predict(noisy)
