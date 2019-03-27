@@ -51,8 +51,8 @@ from tensorflow.keras.layers import BatchNormalization, LeakyReLU, PReLU
 from tensorflow.python.keras.layers.convolutional import Conv, Conv2DTranspose, Conv3DTranspose, UpSampling1D, UpSampling2D, UpSampling3D, ZeroPadding1D, ZeroPadding2D, ZeroPadding3D
 from .normalize import InstanceNormalization, GroupNormalization
 
-from .. import compact
-if compact.COMPATIBLE_MODE:
+from .. import compat
+if compat.COMPATIBLE_MODE:
     from tensorflow.python.keras.engine.base_layer import InputSpec
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec
@@ -242,7 +242,7 @@ class _AConv(Layer):
                           kernel_constraint = self.kernel_constraint,
                           trainable=self.trainable)
         self.layer_conv.build(input_shape)
-        if compact.COMPATIBLE_MODE: # for compatibility
+        if compat.COMPATIBLE_MODE: # for compatibility
             self._trainable_weights.extend(self.layer_conv._trainable_weights)
         next_shape = self.layer_conv.compute_output_shape(input_shape)
         if self.normalization and (not self.use_bias):
@@ -273,14 +273,14 @@ class _AConv(Layer):
                                                      beta_constraint = self.beta_constraint,
                                                      trainable=self.trainable)
             self.layer_norm.build(next_shape)
-            if compact.COMPATIBLE_MODE: # for compatibility
+            if compat.COMPATIBLE_MODE: # for compatibility
                 self._trainable_weights.extend(self.layer_norm._trainable_weights)
             next_shape = self.layer_norm.compute_output_shape(next_shape)
         if self.high_activation == 'prelu':
             shared_axes = tuple(range(1,self.rank+1))
             self.layer_actv = PReLU(shared_axes=shared_axes)
             self.layer_actv.build(next_shape)
-            if compact.COMPATIBLE_MODE: # for compatibility
+            if compat.COMPATIBLE_MODE: # for compatibility
                 self._trainable_weights.extend(self.layer_actv._trainable_weights)
         elif self.high_activation == 'lrelu':
             alpha = self.activity_config.get('alpha', 0.3)
@@ -994,7 +994,7 @@ class _AConvTranspose(Layer):
                               kernel_constraint = self.kernel_constraint,
                               trainable=self.trainable)
             self.layer_conv.build(next_shape)
-            if compact.COMPATIBLE_MODE: # for compatibility
+            if compat.COMPATIBLE_MODE: # for compatibility
                 self._trainable_weights.extend(self.layer_conv._trainable_weights)
             next_shape = self.layer_conv.compute_output_shape(next_shape)
         else:
@@ -1057,7 +1057,7 @@ class _AConvTranspose(Layer):
             else:
                 raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
             self.layer_deconv.build(input_shape)
-            if compact.COMPATIBLE_MODE: # for compatibility
+            if compat.COMPATIBLE_MODE: # for compatibility
                 self._trainable_weights.extend(self.layer_deconv._trainable_weights)
             next_shape = self.layer_deconv.compute_output_shape(input_shape)
             if self.rank == 1:
@@ -1090,14 +1090,14 @@ class _AConvTranspose(Layer):
                                                      beta_constraint = self.beta_constraint,
                                                      trainable=self.trainable)
             self.layer_norm.build(next_shape)
-            if compact.COMPATIBLE_MODE: # for compatibility
+            if compat.COMPATIBLE_MODE: # for compatibility
                 self._trainable_weights.extend(self.layer_norm._trainable_weights)
             next_shape = self.layer_norm.compute_output_shape(next_shape)
         if self.high_activation == 'prelu':
             shared_axes = tuple(range(1,self.rank+1))
             self.layer_actv = PReLU(shared_axes=shared_axes)
             self.layer_actv.build(next_shape)
-            if compact.COMPATIBLE_MODE: # for compatibility
+            if compat.COMPATIBLE_MODE: # for compatibility
                 self._trainable_weights.extend(self.layer_actv._trainable_weights)
         elif self.high_activation == 'lrelu':
             alpha = self.activity_config.get('alpha', 0.3)

@@ -125,6 +125,7 @@ class H5HGParser(tf.keras.utils.Sequence):
             batchSize: number of samples in each batch.
             shuffle: if on, shuffle the data set at the end of each epoch.
         '''
+        super(H5HGParser, self).__init__()
         self.f = None
         if (not os.path.isfile(fileName)) and (os.path.isfile(fileName+'.h5')):
             fileName += '.h5'

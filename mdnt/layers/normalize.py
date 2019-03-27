@@ -27,8 +27,8 @@ from tensorflow.python.keras import regularizers
 from tensorflow.python.keras.engine.base_layer import Layer
 from tensorflow.python.ops import nn_impl
 
-from .. import compact
-if compact.COMPATIBLE_MODE:
+from .. import compat
+if compat.COMPATIBLE_MODE:
     from tensorflow.python.keras.engine.base_layer import InputSpec
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec

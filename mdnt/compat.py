@@ -17,7 +17,7 @@
 # Check compatibility
 import tensorflow
 
-if [int(i) for i in tensorflow.__version__.split('.')] < [1, 12, 0]:
+if [int(i) for i in tensorflow.__version__.split('-')[0].split('.')] < [1, 12, 0]:
     COMPATIBLE_MODE = True
 else:
     COMPATIBLE_MODE = False
