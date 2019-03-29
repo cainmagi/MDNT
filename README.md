@@ -35,6 +35,8 @@ Now we have such progress on the semi-product:
     - [ ] (loss):    Lovasz loss
     - [ ] (metrics): IOU / Jaccard index
     - [ ] (metrics): Pearson correlation coefficient
+- [ ] utilities:
+    - [ ] Beholder plug-in callback.
 
 ## Demos
 

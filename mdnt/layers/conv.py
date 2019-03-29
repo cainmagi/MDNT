@@ -25,6 +25,10 @@
 # Here we also implement some tied convolutional layers, note
 # that it is necessary to set name scope if using them in multi-
 # models.
+# Version: 0.22 # 2019/3/28
+# Comments:
+#   Enable the transposed convolution to control output-padding
+#   in both directions.
 # Version: 0.21 # 2019/3/27
 # Comments:
 #   Add compatible support and fix a bug about activation.
@@ -781,6 +785,8 @@ class _AConvTranspose(Layer):
             The amount of output padding along a given dimension must be
             lower than the stride along that same dimension.
             If set to `None` (default), the output shape is inferred.
+            (When using new-style API, the padding could be like ((a,b),(c,d),...) 
+             so that you could be able to perform padding in different edges.)
         data_format: A string, one of `channels_last` (default) or `channels_first`.
             The ordering of the dimensions in the inputs.
             `channels_last` corresponds to inputs with shape
@@ -883,7 +889,10 @@ class _AConvTranspose(Layer):
         if (self.padding == 'causal' and not isinstance(self, AConv1D)):
             raise ValueError('Causal padding is only supported for `AConv1D`.')
         if output_padding is not None:
-            self.output_padding = conv_utils.normalize_tuple(output_padding, rank, 'output_padding')
+            if self.modenew:
+                self.output_padding = output_padding
+            else:
+                self.output_padding = conv_utils.normalize_tuple(output_padding, rank, 'output_padding')
         else:
             self.output_padding = None
         self.data_format = conv_utils.normalize_data_format(data_format)

@@ -25,6 +25,11 @@
 # python demo-dataSet.py -m ts -s dataset -rd model-...
 # ```
 # to perform the test.
+# Version: 1.15 # 2019/3/28
+# Comments:
+#   1. Add a depth to test the padding policy.
+#   2. Introduce the correlation into the metrics.
+#   3. Add tensorboard logger.
 # Version: 1.10 # 2019/3/27
 # Comments:
 #   Use revised data parser to get batches.
@@ -87,22 +92,34 @@ def mean_loss_func(lossfunc, name=None, *args, **kwargs):
         wrap_func.__name__ = name
     return wrap_func
     
+def correlation(y_true, y_pred):
+    m_y_true = tf.keras.backend.mean(y_true, axis=0)
+    m_y_pred = tf.keras.backend.mean(y_pred, axis=0)
+    s_y_true = tf.keras.backend.sqrt(tf.keras.backend.mean(tf.keras.backend.square(y_true), axis=0) - tf.keras.backend.square(m_y_true))
+    s_y_pred = tf.keras.backend.sqrt(tf.keras.backend.mean(tf.keras.backend.square(y_pred), axis=0) - tf.keras.backend.square(m_y_pred))
+    s_denom = s_y_true * s_y_pred
+    s_numer = tf.keras.backend.mean(y_true * y_pred, axis=0) - m_y_true * m_y_pred
+    s_index = tf.keras.backend.greater(s_denom, 0)
+    return tf.keras.backend.mean(tf.boolean_mask(s_numer,s_index)/tf.boolean_mask(s_denom,s_index))
+    
 def build_model():
     # Build the model
-    channel_1 = 32  # 32 channels
-    channel_2 = 64  # 64 channels
+    channel_1 = 64  # 32 channels
+    channel_2 = 128  # 64 channels
+    channel_3 = 256  # 128 channels
     # this is our input placeholder
     input_img = tf.keras.layers.Input(shape=(28, 28, 1))
     # Create encode layers
     conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization='inst', activation='prelu', padding='same')(input_img)
     conv_2 = mdnt.layers.AConv2D(channel_2, (3, 3), strides=(2, 2), normalization='inst', activation='prelu', padding='same')(conv_1)
-    deconv_1 = mdnt.layers.AConv2DTranspose(channel_1, (3, 3), strides=(2, 2), normalization='inst', activation='prelu', padding='same')(conv_2)
-    deconv_2 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), normalization='bias', activation=tf.nn.sigmoid, padding='same')(deconv_1)
+    conv_3 = mdnt.layers.AConv2D(channel_3, (3, 3), strides=(2, 2), normalization='inst', activation='prelu', padding='same')(conv_2)
+    deconv_3 = mdnt.layers.AConv2DTranspose(channel_2, (3, 3), strides=(2, 2), output_padding=((0,1), (0,1)), normalization='inst', activation='prelu', padding='valid')(conv_3)
+    deconv_2 = mdnt.layers.AConv2DTranspose(channel_1, (3, 3), strides=(2, 2), normalization='inst', activation='prelu', padding='same')(deconv_3)
+    deconv_1 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), normalization='bias', activation=tf.nn.sigmoid, padding='same')(deconv_2)
         
     # this model maps an input to its reconstruction
-    denoiser = tf.keras.models.Model(input_img, deconv_2)
+    denoiser = tf.keras.models.Model(input_img, deconv_1)
     denoiser.summary(line_length=90, positions=[.55, .85, .95, 1.])
-    
     return denoiser
 
 if __name__ == '__main__':
@@ -211,7 +228,8 @@ if __name__ == '__main__':
     if args.mode.casefold() == 'tr' or args.mode.casefold() == 'train':
         denoiser = build_model()
         denoiser.compile(optimizer=mdnt.optimizers.optimizer('amsgrad', l_rate=args.learningRate), 
-                            loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'))
+                            loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'),
+                            metrics=[correlation])
         
         folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))
         if os.path.abspath(folder) == '.' or folder == '':
@@ -222,18 +240,20 @@ if __name__ == '__main__':
             tf.gfile.DeleteRecursively(folder)
         checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_loss:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
+        logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('.', 'logs', args.savedPath), 
+            histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=5)
         parser_train = mdnt.data.H5GParser('mnist-train', ['X'],  batchSize=args.trainBatchNum, preprocfunc=preproc)
         parser_test = mdnt.data.H5GParser('mnist-test', ['X'],  batchSize=args.trainBatchNum, preprocfunc=preproc)
         denoiser.fit(parser_train, steps_per_epoch=len(parser_train),
                     epochs=args.epoch,
                     validation_data=parser_test, validation_steps=len(parser_test),
-                    callbacks=[checkpointer])
+                    callbacks=[checkpointer, logger])
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
         parser_test = mdnt.data.H5GParser('mnist-test', ['X'],  batchSize=args.testBatchNum, shuffle=False, preprocfunc=preproc)
         data_test = iter(parser_test)
         noisy, clean = next(data_test)
-        denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})
+        denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy), 'correlation':correlation})
         denoiser.summary(line_length=90, positions=[.55, .85, .95, 1.])
         decoded_imgs = denoiser.predict(noisy)
         plot_sample(clean, noisy, decoded_imgs, n=args.testBatchNum)

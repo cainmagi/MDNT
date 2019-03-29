@@ -1,5 +1,6 @@
 # Datafiles
 checkpoints/
+logs/
 *.h5
 
 # Byte-compiled / optimized / DLL files
