@@ -25,6 +25,9 @@
 # Here we also implement some tied convolutional layers, note
 # that it is necessary to set name scope if using them in multi-
 # models.
+# Version: 0.23 # 2019/3/30
+# Comments:
+#   Fix a bug when using lrelu without giving configs.
 # Version: 0.22 # 2019/3/28
 # Comments:
 #   Enable the transposed convolution to control output-padding
@@ -130,7 +133,7 @@ class _AConv(Layer):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: `a(x) = x`).
         activity_config: keywords for the parameters of activation
-            function.
+            function (only for lrelu).
     Arguments (others):
         activity_regularizer: Regularizer function applied to
             the output of the layer (its "activation").
@@ -208,11 +211,13 @@ class _AConv(Layer):
         if isinstance(activation, str) and (activation.casefold() in ('prelu','lrelu')):
             self.activation = activations.get(None)
             self.high_activation = activation.casefold()
-            self.activity_config = activity_config
+            self.activity_config = activity_config # dictionary passed to activation
+            if activity_config is None:
+                self.activity_config = dict()
         elif activation is not None:
             self.use_plain_activation = True
             self.activation = activations.get(activation)
-            self.activity_config = activity_config # dictionary passed to activation
+            self.activity_config = None
         else:
             self.activation = activations.get(None)
             self.activity_config = None
@@ -405,7 +410,7 @@ class AConv1D(_AConv):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: `a(x) = x`).
         activity_config: keywords for the parameters of activation
-            function.
+            function (only for lrelu).
     Arguments (others):
         activity_regularizer: Regularizer function applied to
             the output of the layer (its "activation").
@@ -544,7 +549,7 @@ class AConv2D(_AConv):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: `a(x) = x`).
         activity_config: keywords for the parameters of activation
-            function.
+            function (only for lrelu).
     Arguments (others):
         activity_regularizer: Regularizer function applied to
             the output of the layer (its "activation").
@@ -686,7 +691,7 @@ class AConv3D(_AConv):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: `a(x) = x`).
         activity_config: keywords for the parameters of activation
-            function.
+            function (only for lrelu).
     Arguments (others):
         activity_regularizer: Regularizer function applied to
             the output of the layer (its "activation").
@@ -832,7 +837,7 @@ class _AConvTranspose(Layer):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: `a(x) = x`).
         activity_config: keywords for the parameters of activation
-            function.
+            function (only for lrelu).
     Arguments (others):
         activity_regularizer: Regularizer function applied to
             the output of the layer (its "activation").
@@ -931,10 +936,12 @@ class _AConvTranspose(Layer):
             self.activation = activations.get(None)
             self.high_activation = activation.casefold()
             self.activity_config = activity_config
+            if activity_config is None:
+                self.activity_config = dict()
         elif activation is not None:
             self.use_plain_activation = True
             self.activation = activations.get(activation)
-            self.activity_config = activity_config # dictionary passed to activation
+            self.activity_config = None
         else:
             self.activation = activations.get(None)
             self.activity_config = None
@@ -1259,7 +1266,7 @@ class AConv1DTranspose(_AConvTranspose):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: `a(x) = x`).
         activity_config: keywords for the parameters of activation
-            function.
+            function (only for lrelu).
     Arguments (others):
         activity_regularizer: Regularizer function applied to
             the output of the layer (its "activation").
@@ -1415,7 +1422,7 @@ class AConv2DTranspose(_AConvTranspose):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: `a(x) = x`).
         activity_config: keywords for the parameters of activation
-            function.
+            function (only for lrelu).
     Arguments (others):
         activity_regularizer: Regularizer function applied to
             the output of the layer (its "activation").
@@ -1578,7 +1585,7 @@ class AConv3DTranspose(_AConvTranspose):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: `a(x) = x`).
         activity_config: keywords for the parameters of activation
-            function.
+            function (only for lrelu).
     Arguments (others):
         activity_regularizer: Regularizer function applied to
             the output of the layer (its "activation").
