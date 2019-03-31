@@ -55,6 +55,10 @@ The following demos are working for denoising with MNIST data set.
 
 # Update records
 
+## 0.24 @ 03/31/2019
+
+Finish `H5GCombiner` in `.data`.
+
 ## 0.23 @ 03/27/2019
 
 1. Use `keras.Sequence()` to redefine `H5GParser` and `H5HGParser`.
@@ -66,7 +70,7 @@ Adjust the `.data.h5py` module to make it more generalized.
 
 ## 0.20 @ 03/26/2019
 
-1. Finish `H5HGParser`, `H5SupSaver`, `H5GParser` in `.data`
+1. Finish `H5HGParser`, `H5SupSaver`, `H5GParser` in `.data`.
 2. Finish `DenseTied`, `InstanceNormalization`, `GroupNormalization`, `AConv1D`, `AConv2D`, `AConv3D`, `AConv1DTranspose`,  `AConv2DTranspose`, `AConv3DTranspose` in `.layers`.
 
 ## 0.10 @ 03/23/2019

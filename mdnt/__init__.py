@@ -16,7 +16,7 @@
 # plain tensorflow-keras.
 # Version: 0.24 # 2019/3/31
 # Comments:
-#   Finish H5GCombiner  in .data
+#   Finish H5GCombiner in .data.
 # Version: 0.23 # 2019/3/26
 # Comments:
 #   1. Use keras.Sequence() to redefine H5GParser and 
@@ -27,10 +27,10 @@
 #   Adjust the .data.h5py module to make it more generalized.
 # Version: 0.20 # 2019/3/26
 # Comments:
-#   Finish H5HGParser, H5SupSaver, H5GParser in .data
+#   Finish H5HGParser, H5SupSaver, H5GParser in .data.
 #   Finish DenseTied, InstanceNormalization, GroupNormalization,
 #          AConv1D, AConv2D, AConv3D, AConv1DTranspose, 
-#          AConv2DTranspose, AConv3DTranspose in .layers
+#          AConv2DTranspose, AConv3DTranspose in .layers.
 # Version: 0.10 # 2019/3/23
 # Comments:
 #   Create this project.
