@@ -14,6 +14,9 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.24 # 2019/3/31
+# Comments:
+#   Finish H5GCombiner  in .data
 # Version: 0.23 # 2019/3/26
 # Comments:
 #   1. Use keras.Sequence() to redefine H5GParser and 
@@ -38,6 +41,8 @@
 from . import optimizers
 from . import layers
 from . import data
+
+__version__ = '0.24'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

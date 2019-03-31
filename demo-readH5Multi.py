@@ -8,9 +8,8 @@
 #   python 3.6
 #   tensorflow r1.13+
 #   numpy, matplotlib
-# This is just a simple demo for reading H5 file.
-# It shows the realization of standard set defined by Keras APIs.
-# Version: 1.00 # 2019/3/26
+# This is just a simple demo for reading multiple unrelated sets.
+# Version: 1.00 # 2019/3/31
 # Comments:
 #   Create this project.
 ####################################################################
@@ -33,9 +32,22 @@ if __name__ == '__main__':
         x_noisy = x + noise_factor * np.random.normal(loc=0.0, scale=1.0, size=x.shape)
         return (x_noisy,)
         
-    P = mdnt.data.H5GParser('mnist-test', ['X', 'Y'],  batchSize=32, preprocfunc=preproc)
+    def preprocComb(p1, p2):
+        '''
+        The processing function for the combiner.
+        '''
+        X = (p1[0], p2[0])
+        Y = p2[1]
+        return X, Y
+        
+    P1 = mdnt.data.H5GParser('mnist-test', ['X', 'Y'],  batchSize=32, preprocfunc=preproc)
+    P2 = mdnt.data.H5GParser('mnist-train', ['X', 'Y'],  batchSize=32, preprocfunc=None)
+    P = mdnt.data.H5GCombiner(P1, P2, preprocfunc=preprocComb)
     dp = iter(P)
     
-    for i in range(10):
-        value = next(dp)
-        print([value[0].shape])
+    for i in range(3000): # 32*3000 = 96000 > 60000 >> 10000
+        try:
+            value = next(dp)
+            print('Iter {0}:'.format(i), [value[0][0].shape, value[0][1].shape, value[1].shape])
+        except StopIteration:
+            dp = iter(P)

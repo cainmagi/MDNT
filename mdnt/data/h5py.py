@@ -10,6 +10,9 @@
 # Warning:
 #   The standard tf dataset is proved to be incompatible with 
 #   tf-K architecture. We need to wait until tf fix the bug.
+# Version: 0.20 # 2019/3/31
+# Comments:
+#   Add a new class, `H5GCombiner`.
 # Version: 0.18 # 2019/3/27
 # Comments:
 #   1. Upgrade the generators (parsers) to keras.util version.
@@ -214,11 +217,87 @@ class H5HGParser(tf.keras.utils.Sequence):
         '''
         dname = self.__dnameIndex
         return self.f[dname][index]
-            
+
+class H5GCombiner(tf.keras.utils.Sequence):
+    '''Combiner designed for H5GParser
+    In some applications, we may need to use multiple H5GParser
+    simultaneously, and apply different preprocessing functions
+    respectively. This class is used for such a case. It accepts
+    multiple H5GParsers, and maintains a current index for each
+    subsets (H5Parsers). If the shuffle flag is enabled in any subset, 
+    the shuffle operation would be triggered respectively.
+    Note that in each iteration, the H5GCombiner would returns a
+    combined list for all returned results from each subset. Hence
+    generally an external preprocessing function is needed for this
+    class so that the returned data could be rearranged correctly.
+    This class is used for merging unrelated datasets. If you need to
+    combine multiple related datasets with the same number of samples,
+    you should use H5GParser rather than this class, and store those
+    related datasets in the same .h5 file with different keywords.
+    '''
+    def __init__(self, *args, preprocfunc=None):
+        '''
+        Merge multiple H5Parsers.
+        Arguments:
+            args: one or more H5Parsers (At least one H5Parsers).
+            preprocfunc: the function applied for the combined outputs
+                         from all subsets (H5Parsers).
+        Note that the length of this combiner, or the end of an epoch would
+        by tagged by the end of the first dataset.
+        '''
+        super(H5GCombiner, self).__init__()
+        self.__setSize = len(args)
+        if self.__setSize == 0:
+            raise TypeError('Should combine at least one H5Parser.')
+        for p in args:
+            if not isinstance(p, H5GParser):
+                raise TypeError('The type of one input argument is not H5Parser, need to check the inputs.')
+        self.__parserList = args
+        self.__sizeList = [len(p) for p in self.__parserList]
+        self.__indexList = [0] * self.__setSize
+        self.__preprocfunc = preprocfunc
+        
+    def __len__(self):
+        '''
+        Use the size of first dataset as the epoch size.
+        '''
+        return self.__sizeList[0]
+    
+    def __getitem__(self, idx):
+        """
+        Gets batch at position `index`.
+        In this class, the usage of `idx` (or `index`) parameter would be canceled,
+        i.e. it only return samples in step by step.
+        """
+        collection = []
+        for i in range(self.__setSize):
+            ind = self.__indexList[i] # Get current index
+            collection.append(self.__parserList[i][ind])
+            ind = (ind + 1) % self.__sizeList[i] # Increse the current index
+            self.__indexList[i] = ind
+            if ind == 0: # If reach the end of a subset, call on_epoch_end
+                self.__parserList[i].on_epoch_end()
+        if self.__preprocfunc is not None:
+            return self.__preprocfunc(*collection)
+        else:
+            return tuple(collection)
+    
+    def append(self, newparser):
+        '''
+        Add a new H5Parser into this combination.
+        The added parser (subset) would be appended on the end of the parser list.
+        '''
+        if not isinstance(p, H5GParser):
+            raise TypeError('The type of appended instance is not H5Parser, need to check the input.')
+        self.__indexList.append(0)
+        self.__sizeList.append(len(newparser))
+        self.__parserList.append(newparser)
+        self.__setSize += 1
+        
 class H5GParser(tf.keras.utils.Sequence):
     '''Grouply parsing dataset
     This class allows users to feed one .h5 file, and convert it to 
-    tf.data.Dataset. The realization could be described as:
+    tf.keras.utils.Sequence. The realization could be described as:
         (1) Create .h5 file handle.
         (2) Using the user defined keywords to get a group of datasets.
         (3) Estimate the dataset sizes, and generate indices. Note each
