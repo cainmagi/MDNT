@@ -14,6 +14,13 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.28 # 2019/5/24
+# Comments:
+# 1. Fix the bug about padding for transposed dilation 
+#    convolutional layers.
+# 2. Add a new option output_mshape to help transposed 
+#    convolutional layers to control the desired output shape.
+# 3. Finish PyExternal in .layers.
 # Version: 0.24 # 2019/3/31
 # Comments:
 #   Finish H5GCombiner in .data.
@@ -42,7 +49,7 @@ from . import optimizers
 from . import layers
 from . import data
 
-__version__ = '0.24'
+__version__ = '0.28'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

@@ -25,6 +25,10 @@
 # Here we also implement some tied convolutional layers, note
 # that it is necessary to set name scope if using them in multi-
 # models.
+# Version: 0.3 # 2019/5/22
+# Comments:
+#   Enhance the transposed convolution to enable it to infer
+#   the padding/cropping policy from desired output shape.
 # Version: 0.23 # 2019/3/30
 # Comments:
 #   Fix a bug when using lrelu without giving configs.
@@ -55,7 +59,7 @@ from tensorflow.python.keras.engine.base_layer import Layer
 from tensorflow.python.ops import array_ops
 
 from tensorflow.keras.layers import BatchNormalization, LeakyReLU, PReLU
-from tensorflow.python.keras.layers.convolutional import Conv, Conv2DTranspose, Conv3DTranspose, UpSampling1D, UpSampling2D, UpSampling3D, ZeroPadding1D, ZeroPadding2D, ZeroPadding3D
+from tensorflow.python.keras.layers.convolutional import Conv, Conv2DTranspose, Conv3DTranspose, UpSampling1D, UpSampling2D, UpSampling3D, ZeroPadding1D, ZeroPadding2D, ZeroPadding3D, Cropping1D, Cropping2D, Cropping3D
 from .normalize import InstanceNormalization, GroupNormalization
 
 from .. import compat
@@ -785,13 +789,27 @@ class _AConvTranspose(Layer):
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
         padding: One of `"valid"`,  `"same"`.
+        output_mshape: (Only avaliable for new-style API) An integer or tuple/list
+            of the desired output shape. When setting this option, `output_padding`
+            and `out_cropping` would be inferred from the input shape, which means
+            users' options would be invalid for the following two options.
+            A recommended method of using this method is applying such a scheme:
+                `AConv(..., output_mshape=tensor.get_shape())`
         output_padding: An integer or tuple/list of n integers,
             specifying the amount of padding along the axes of the output tensor.
             The amount of output padding along a given dimension must be
             lower than the stride along that same dimension.
-            If set to `None` (default), the output shape is inferred.
+            If set to `None` (default), the output shape would not be padded.
             (When using new-style API, the padding could be like ((a,b),(c,d),...) 
-             so that you could be able to perform padding in different edges.)
+             so that you could be able to perform padding along different edges.)
+        out_cropping: (Only avaliable for new-style API) An integer or tuple/list 
+            of n integers, specifying the amount of cropping along the axes of the
+            output tensor. The amount of output cropping along a given dimension must
+            be lower than the stride along that same dimension.
+            If set to `None` (default), the output shape would not be cropped.
+            (Because this option only takes effect on new-style API, the cropping
+             could be like ((a,b),(c,d),...) so that you could be able to perform
+             cropping along different edges.)
         data_format: A string, one of `channels_last` (default) or `channels_first`.
             The ordering of the dimensions in the inputs.
             `channels_last` corresponds to inputs with shape
@@ -855,7 +873,9 @@ class _AConvTranspose(Layer):
                  modenew=None,
                  strides=1,
                  padding='valid',
+                 output_mshape=None,
                  output_padding=None,
+                 output_cropping=None,
                  data_format=None,
                  dilation_rate=1,
                  kernel_initializer='glorot_uniform',
@@ -900,11 +920,22 @@ class _AConvTranspose(Layer):
                 self.output_padding = conv_utils.normalize_tuple(output_padding, rank, 'output_padding')
         else:
             self.output_padding = None
+        self.output_mshape = None
+        self.output_cropping = None
+        if self.modenew:
+            if output_mshape:
+                self.output_mshape = output_mshape
+            if output_cropping:
+                self.output_cropping = output_cropping
         self.data_format = conv_utils.normalize_data_format(data_format)
         if rank == 1 and self.data_format == 'channels_first':
             raise ValueError('Does not support channels_first data format for 1D case due to the limitation of upsampling method.')
-        self.dilation_rate = conv_utils.normalize_tuple(
-            dilation_rate, rank, 'dilation_rate')
+        if self.dilation_rate != 1:
+            if self.modenew:
+                self.dilation_rate = conv_utils.normalize_tuple(
+                    dilation_rate, rank, 'dilation_rate')
+            else:
+                raise ValueError('Does not support dilation_rate data format for new-style convolution API.')
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
         self.kernel_constraint = constraints.get(kernel_constraint)
@@ -961,16 +992,65 @@ class _AConvTranspose(Layer):
             bias_regularizer = None
             bias_constraint = None
         if self.modenew:
+            # If setting output_mshape, need to infer output_padding & output_cropping
+            if self.output_mshape is not None:
+                if not isinstance(self.output_mshape, (list, tuple)):
+                    l_output_mshape = self.output_mshape.as_list()
+                else:
+                    l_output_mshape = self.output_mshape
+                l_output_mshape = l_output_mshape[1:-1]
+                l_input_shape = input_shape.as_list()[1:-1]
+                self.output_padding = []
+                self.output_cropping = []
+                for i in range(self.rank):
+                    get_shape_diff = l_output_mshape[i] - l_input_shape[i]*max(self.strides[i], self.dilation_rate[i])
+                    if get_shape_diff > 0:
+                        b_inf = get_shape_diff // 2
+                        b_sup = b_inf + get_shape_diff % 2
+                        self.output_padding.append((b_inf, b_sup))
+                        self.output_cropping.append((0, 0))
+                    elif get_shape_diff < 0:
+                        get_shape_diff = -get_shape_diff
+                        b_inf = get_shape_diff // 2
+                        b_sup = b_inf + get_shape_diff % 2
+                        self.output_cropping.append((b_inf, b_sup))
+                        self.output_padding.append((0, 0))
+                    else:
+                        self.output_cropping.append((0, 0))
+                        self.output_padding.append((0, 0))
+                deFlag_padding = 0
+                deFlag_cropping = 0
+                for i in range(self.rank):
+                    smp = self.output_padding[i]
+                    if smp[0] == 0 and smp[1] == 0:
+                        deFlag_padding += 1
+                    smp = self.output_cropping[i]
+                    if smp[0] == 0 and smp[1] == 0:
+                        deFlag_cropping += 1
+                if deFlag_padding >= self.rank:
+                    self.output_padding = None
+                else:
+                    self.output_padding = tuple(self.output_padding)
+                if deFlag_cropping >= self.rank:
+                    self.output_cropping = None
+                else:
+                    self.output_cropping = tuple(self.output_cropping)
             if self.rank == 1:
                 self.layer_uppool = UpSampling1D(size=self.strides[0])
                 self.layer_uppool.build(input_shape)
                 next_shape = self.layer_uppool.compute_output_shape(input_shape)
                 if self.output_padding is not None:
-                    self.layer_padding = ZeroPadding1D(padding=self.output_padding[0])
+                    self.layer_padding = ZeroPadding1D(padding=self.output_padding)[0] # Necessary for 1D case, because we need to pick (a,b) from ((a, b))
                     self.layer_padding.build(next_shape)
                     next_shape = self.layer_padding.compute_output_shape(next_shape)
                 else:
                     self.layer_padding = None
+                if self.output_cropping is not None:
+                    self.layer_cropping = Cropping1D(cropping=self.output_cropping)[0]
+                    self.layer_cropping.build(next_shape)
+                    next_shape = self.layer_cropping.compute_output_shape(next_shape)
+                else:
+                    self.layer_cropping = None
             elif self.rank == 2:
                 self.layer_uppool = UpSampling2D(size=self.strides, data_format=self.data_format)
                 self.layer_uppool.build(input_shape)
@@ -981,6 +1061,12 @@ class _AConvTranspose(Layer):
                     next_shape = self.layer_padding.compute_output_shape(next_shape)
                 else:
                     self.layer_padding = None
+                if self.output_cropping is not None:
+                    self.layer_cropping = Cropping2D(cropping=self.output_cropping)
+                    self.layer_cropping.build(next_shape)
+                    next_shape = self.layer_cropping.compute_output_shape(next_shape)
+                else:
+                    self.layer_cropping = None
             elif self.rank == 3:
                 self.layer_uppool = UpSampling3D(size=self.strides, data_format=self.data_format)
                 self.layer_uppool.build(input_shape)
@@ -991,6 +1077,12 @@ class _AConvTranspose(Layer):
                     next_shape = self.layer_padding.compute_output_shape(next_shape)
                 else:
                     self.layer_padding = None
+                if self.output_cropping is not None:
+                    self.layer_cropping = Cropping3D(cropping=self.output_cropping)
+                    self.layer_cropping.build(next_shape)
+                    next_shape = self.layer_cropping.compute_output_shape(next_shape)
+                else:
+                    self.layer_cropping = None
             else:
                 raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
             self.layer_conv = Conv(rank = self.rank,
@@ -999,7 +1091,7 @@ class _AConvTranspose(Layer):
                               strides = 1,
                               padding = self.padding,
                               data_format = self.data_format,
-                              dilation_rate = self.dilation_rate,
+                              dilation_rate = 1,
                               activation = None,
                               use_bias = self.use_bias,
                               bias_initializer = bias_initializer,
@@ -1126,6 +1218,8 @@ class _AConvTranspose(Layer):
             outputs = self.layer_uppool(inputs)
             if self.layer_padding is not None:
                 outputs = self.layer_padding(outputs)
+            if self.layer_cropping is not None:
+                outputs = self.layer_cropping(outputs)
             outputs = self.layer_conv(outputs)
         else: # Use classic method
             if self.rank == 1:
@@ -1148,6 +1242,8 @@ class _AConvTranspose(Layer):
             next_shape = self.layer_uppool.compute_output_shape(input_shape)
             if self.layer_padding is not None:
                 next_shape = self.layer_padding.compute_output_shape(next_shape)
+            if self.layer_cropping is not None:
+                next_shape = self.layer_cropping.compute_output_shape(next_shape)
             next_shape = self.layer_conv.compute_output_shape(next_shape)
         else: # Use classic method
             if self.rank == 1:
@@ -1167,7 +1263,9 @@ class _AConvTranspose(Layer):
             'kernel_size': self.kernel_size,
             'strides': self.strides,
             'padding': self.padding,
+            'output_mshape': self.output_mshape,
             'output_padding': self.output_padding,
+            'output_cropping': self.output_cropping,
             'data_format': self.data_format,
             'dilation_rate': self.dilation_rate,
             'kernel_initializer': initializers.serialize(self.kernel_initializer),
@@ -1217,12 +1315,23 @@ class AConv1DTranspose(_AConvTranspose):
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
         padding: One of `"valid"`,  `"same"`.
+        output_mshape: (Only avaliable for new-style API) An integer or tuple/list
+            of the desired output shape. When setting this option, `output_padding`
+            and `out_cropping` would be inferred from the input shape, which means
+            users' options would be invalid for the following two options.
+            A recommended method of using this method is applying such a scheme:
+                `AConv(..., output_mshape=tensor.get_shape())`
         output_padding: An integer or tuple/list of n integers,
             specifying the amount of padding along the height and width
             of the output tensor.
             The amount of output padding along a given dimension must be
             lower than the stride along that same dimension.
-            If set to `None` (default), the output shape is inferred.
+            If set to `None` (default), the output shape would not be padded.
+        out_cropping: (Only avaliable for new-style API) An integer or tuple/list 
+            of n integers, specifying the amount of cropping along the axes of the
+            output tensor. The amount of output cropping along a given dimension must
+            be lower than the stride along that same dimension.
+            If set to `None` (default), the output shape would not be cropped.
         data_format: A string, only support `channels_last` here:
             `channels_last` corresponds to inputs with shape
             `(batch, steps channels)`
@@ -1287,7 +1396,9 @@ class AConv1DTranspose(_AConvTranspose):
                  kernel_size,
                  strides=1,
                  padding='valid',
+                 output_mshape=None,
                  output_padding=None,
+                 output_cropping=None,
                  data_format=None,
                  dilation_rate=1,
                  kernel_initializer='glorot_uniform',
@@ -1311,7 +1422,9 @@ class AConv1DTranspose(_AConvTranspose):
             kernel_size=kernel_size,
             strides=strides,
             padding=padding,
+            output_mshape=output_mshape,
             output_padding=output_padding,
+            output_cropping=output_cropping,
             data_format=data_format,
             dilation_rate=dilation_rate,
             kernel_initializer=initializers.get(kernel_initializer),
@@ -1362,6 +1475,12 @@ class AConv2DTranspose(_AConvTranspose):
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
         padding: one of `"valid"` or `"same"` (case-insensitive).
+        output_mshape: (Only avaliable for new-style API) An integer or tuple/list
+            of the desired output shape. When setting this option, `output_padding`
+            and `out_cropping` would be inferred from the input shape, which means
+            users' options would be invalid for the following two options.
+            A recommended method of using this method is applying such a scheme:
+                `AConv(..., output_mshape=tensor.get_shape())`
         output_padding: An integer or tuple/list of 2 integers,
             specifying the amount of padding along the height and width
             of the output tensor.
@@ -1369,7 +1488,12 @@ class AConv2DTranspose(_AConvTranspose):
             spatial dimensions.
             The amount of output padding along a given dimension must be
             lower than the stride along that same dimension.
-            If set to `None` (default), the output shape is inferred.
+            If set to `None` (default), the output shape would not be padded.
+        out_cropping: (Only avaliable for new-style API) An integer or tuple/list 
+            of n integers, specifying the amount of cropping along the axes of the
+            output tensor. The amount of output cropping along a given dimension must
+            be lower than the stride along that same dimension.
+            If set to `None` (default), the output shape would not be cropped.
         data_format: A string,
             one of `channels_last` (default) or `channels_first`.
             The ordering of the dimensions in the inputs.
@@ -1449,7 +1573,9 @@ class AConv2DTranspose(_AConvTranspose):
                  kernel_size,
                  strides=(1, 1),
                  padding='valid',
+                 output_mshape=None,
                  output_padding=None,
+                 output_cropping=None,
                  data_format=None,
                  dilation_rate=(1, 1),
                  kernel_initializer='glorot_uniform',
@@ -1473,7 +1599,9 @@ class AConv2DTranspose(_AConvTranspose):
             kernel_size=kernel_size,
             strides=strides,
             padding=padding,
+            output_mshape=output_mshape,
             output_padding=output_padding,
+            output_cropping=output_cropping,
             data_format=data_format,
             dilation_rate=dilation_rate,
             kernel_initializer=initializers.get(kernel_initializer),
@@ -1525,6 +1653,12 @@ class AConv3DTranspose(_AConvTranspose):
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
         padding: one of `"valid"` or `"same"` (case-insensitive).
+        output_mshape: (Only avaliable for new-style API) An integer or tuple/list
+            of the desired output shape. When setting this option, `output_padding`
+            and `out_cropping` would be inferred from the input shape, which means
+            users' options would be invalid for the following two options.
+            A recommended method of using this method is applying such a scheme:
+                `AConv(..., output_mshape=tensor.get_shape())`
         output_padding: An integer or tuple/list of 3 integers,
             specifying the amount of padding along the depth, height, and
             width.
@@ -1533,6 +1667,11 @@ class AConv3DTranspose(_AConvTranspose):
             The amount of output padding along a given dimension must be
             lower than the stride along that same dimension.
             If set to `None` (default), the output shape is inferred.
+        out_cropping: (Only avaliable for new-style API) An integer or tuple/list 
+            of n integers, specifying the amount of cropping along the axes of the
+            output tensor. The amount of output cropping along a given dimension must
+            be lower than the stride along that same dimension.
+            If set to `None` (default), the output shape would not be cropped.
         data_format: A string,
             one of `channels_last` (default) or `channels_first`.
             The ordering of the dimensions in the inputs.
@@ -1614,7 +1753,9 @@ class AConv3DTranspose(_AConvTranspose):
                  kernel_size,
                  strides=(1, 1, 1),
                  padding='valid',
+                 output_mshape=None,
                  output_padding=None,
+                 output_cropping=None,
                  data_format=None,
                  dilation_rate=(1, 1, 1),
                  kernel_initializer='glorot_uniform',
@@ -1638,7 +1779,9 @@ class AConv3DTranspose(_AConvTranspose):
             kernel_size=kernel_size,
             strides=strides,
             padding=padding,
+            output_mshape=output_mshape,
             output_padding=output_padding,
+            output_cropping=output_cropping,
             data_format=data_format,
             dilation_rate=dilation_rate,
             kernel_initializer=initializers.get(kernel_initializer),

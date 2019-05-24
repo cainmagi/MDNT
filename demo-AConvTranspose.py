@@ -84,16 +84,22 @@ def build_model(mode='split'):
     # Build the model
     channel_1 = 32  # 32 channels
     channel_2 = 64  # 64 channels
+    channel_3 = 128  # 128 channels
+    channel_4 = 512  # 512 channels
     # this is our input placeholder
     input_img = tf.keras.layers.Input(shape=(28, 28, 1))
     # Create encode layers
     conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=mode.casefold(), activation='prelu', padding='same')(input_img)
     conv_2 = mdnt.layers.AConv2D(channel_2, (3, 3), strides=(2, 2), normalization=mode.casefold(), activation='prelu', padding='same')(conv_1)
-    deconv_1 = mdnt.layers.AConv2DTranspose(channel_1, (3, 3), strides=(2, 2), normalization=mode.casefold(), activation='prelu', padding='same')(conv_2)
-    deconv_2 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), normalization='bias', activation=tf.nn.sigmoid, padding='same')(deconv_1)
+    conv_3 = mdnt.layers.AConv2D(channel_3, (3, 3), strides=(2, 2), normalization=mode.casefold(), activation='prelu', padding='same')(conv_2)
+    conv_4 = mdnt.layers.AConv2D(channel_4, (3, 3), strides=(2, 2), normalization=mode.casefold(), activation='prelu', padding='same')(conv_3)
+    deconv_1 = mdnt.layers.AConv2DTranspose(channel_3, (3, 3), strides=(2, 2), output_mshape=conv_3.get_shape(), normalization=mode.casefold(), activation='prelu', padding='same')(conv_4)
+    deconv_2 = mdnt.layers.AConv2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode.casefold(), activation='prelu', padding='same')(deconv_1)
+    deconv_3 = mdnt.layers.AConv2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode.casefold(), activation='prelu', padding='same')(deconv_2)
+    deconv_4 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), output_mshape=input_img.get_shape(), normalization='bias', activation=tf.nn.sigmoid, padding='same')(deconv_3)
         
     # this model maps an input to its reconstruction
-    denoiser = tf.keras.models.Model(input_img, deconv_2)
+    denoiser = tf.keras.models.Model(input_img, deconv_4)
     denoiser.summary(line_length=90, positions=[.55, .85, .95, 1.])
     
     return denoiser
