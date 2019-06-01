@@ -253,10 +253,10 @@ class _Residual(Layer):
                           beta_constraint=self.beta_constraint,
                           gamma_constraint=self.gamma_constraint,
                           groups=self.groups,
-                          activation=self.activation,
-                          activity_config=self.activity_config,
-                          activity_regularizer=self.sub_activity_regularizer,
-                          _high_activation=self.high_activation,
+                          activation=None,
+                          activity_config=None,
+                          activity_regularizer=None,
+                          _high_activation=None,
                           trainable=self.trainable)
             self.layer_branch_left.build(input_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
@@ -1093,10 +1093,10 @@ class _ResidualTranspose(Layer):
                           beta_constraint=self.beta_constraint,
                           gamma_constraint=self.gamma_constraint,
                           groups=self.groups,
-                          activation=self.activation,
-                          activity_config=self.activity_config,
-                          activity_regularizer=self.sub_activity_regularizer,
-                          _high_activation=self.high_activation,
+                          activation=None,
+                          activity_config=None,
+                          activity_regularizer=None,
+                          _high_activation=None,
                           trainable=self.trainable)
             self.layer_branch_left.build(next_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
