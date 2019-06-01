@@ -11,7 +11,7 @@ For the users who need to clone this branch first, please use such commands to m
 ```bash
 git clone -b demos https://github.com/cainmagi/MDNT.git mdnt-demos
 cd mdnt-demos
-git pull --recurse-submodules
+git submodule update --init --recursive
 ```
 
 ### Update
