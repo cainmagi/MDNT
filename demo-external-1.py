@@ -158,5 +158,5 @@ if __name__ == '__main__':
         exit(0)
     X, Y = np.meshgrid(np.linspace(-3, 3, 20), np.linspace(-3, 3, 20))
     _, _, grad_rx, grad_ry, grad_tx, grad_ty = cart2polar_model.predict([np.reshape(X, [X.size, 1]), np.reshape(Y, [Y.size, 1])])
-    draw_quiver(X, Y, grad_rx, grad_ry, r'$\dfrac{\rho}{\mathbf{x}}$')
-    draw_quiver(X, Y, grad_tx, grad_ty, r'$\dfrac{\theta}{\mathbf{x}}$')
+    draw_quiver(X, Y, grad_rx, grad_ry, r'$\dfrac{\partial \rho}{\partial \mathbf{x}}$')
+    draw_quiver(X, Y, grad_tx, grad_ty, r'$\dfrac{\partial \theta}{\partial \mathbf{x}}$')

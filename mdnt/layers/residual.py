@@ -7,6 +7,10 @@
 #   python 3.6+
 #   tensorflow r1.13+
 # Residual blocks and their deconvolutional versions.
+# Version: 0.20 # 2019/5/31
+# Comments:
+#   Finish this submodule and fix the bugs caused by parameter
+#   searching scheme.
 # Version: 0.10 # 2019/3/23
 # Comments:
 #   Create this submodule.
@@ -21,17 +25,19 @@ from tensorflow.python.keras import initializers
 from tensorflow.python.keras import regularizers
 from tensorflow.python.keras.utils import conv_utils
 from tensorflow.python.keras.engine.base_layer import Layer
-from tensorflow.python.ops import array_ops
 
-from tensorflow.keras.layers import BatchNormalization, LeakyReLU, PReLU
-from tensorflow.python.keras.layers.convolutional import Conv, Conv2DTranspose, Conv3DTranspose, UpSampling1D, UpSampling2D, UpSampling3D, ZeroPadding1D, ZeroPadding2D, ZeroPadding3D, Cropping1D, Cropping2D, Cropping3D
-from .normalize import InstanceNormalization, GroupNormalization
+from tensorflow.python.keras.layers.convolutional import Conv, UpSampling1D, UpSampling2D, UpSampling3D, ZeroPadding1D, ZeroPadding2D, ZeroPadding3D, Cropping1D, Cropping2D, Cropping3D
+from tensorflow.python.keras.layers.merge import Add
+from .unit import NACUnit
+from .conv import _AConv
 
 from .. import compat
 if compat.COMPATIBLE_MODE:
     from tensorflow.python.keras.engine.base_layer import InputSpec
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec
+
+_check_dl_func = lambda a: all(ai==1 for ai in a)
 
 class _Residual(Layer):
     """Modern residual layer.
@@ -50,8 +56,10 @@ class _Residual(Layer):
     Arguments for residual block:
         rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
         depth: An integer, indicates the repentance of convolutional blocks.
-        filters: Integer, the dimensionality of the output space (i.e. the number
-            of filters in the convolution).
+        ofilters: Integer, the dimensionality of the output space (i.e. the number
+            of filters of output).
+        lfilters: Integer, the dimensionality of the lattent space (i.e. the number
+            of filters in the convolution branch).
     Arguments for convolution:
         kernel_size: An integer or tuple/list of n integers, specifying the
             length of the convolution window.
@@ -59,7 +67,6 @@ class _Residual(Layer):
             specifying the stride length of the convolution.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
-        padding: One of `"valid"`,  `"same"`, or `"causal"` (case-insensitive).
         data_format: A string, one of `channels_last` (default) or `channels_first`.
             The ordering of the dimensions in the inputs.
             `channels_last` corresponds to inputs with shape
@@ -113,10 +120,10 @@ class _Residual(Layer):
     """
 
     def __init__(self, rank,
-                 depth, filters,
+                 depth, ofilters,
                  kernel_size,
+                 lfilters=None,
                  strides=1,
-                 padding='valid',
                  data_format=None,
                  dilation_rate=1,
                  kernel_initializer='glorot_uniform',
@@ -143,34 +150,30 @@ class _Residual(Layer):
         super(_Residual, self).__init__(trainable=trainable, name=name, **kwargs)
         # Inherit from keras.layers._Conv
         self.rank = rank
-        self.filters = filters
+        self.depth = depth - 2
+        self.ofilters = ofilters
+        self.lfilters = lfilters
+        if self.depth < 1:
+            raise ValueError('The depth of the residual block should be >= 3.')
         self.kernel_size = conv_utils.normalize_tuple(
             kernel_size, rank, 'kernel_size')
         self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
-        self.padding = conv_utils.normalize_padding(padding)
-        if (self.padding == 'causal' and not isinstance(self, AConv1D)):
-            raise ValueError('Causal padding is only supported for `AConv1D`.')
         self.data_format = conv_utils.normalize_data_format(data_format)
         self.dilation_rate = conv_utils.normalize_tuple(
             dilation_rate, rank, 'dilation_rate')
+        if (not _check_dl_func(self.dilation_rate)) and (not _check_dl_func(self.strides)):
+            raise ValueError('Does not support dilation_rate when strides > 1.')
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
         self.kernel_constraint = constraints.get(kernel_constraint)
-        self.subactv_regularizers = regularizers.get(activity_regularizer)
+        self.activity_regularizer = regularizers.get(activity_regularizer)
         # Inherit from mdnt.layers.normalize
         self.normalization = normalization
         if isinstance(normalization, str) and normalization in ('batch', 'inst', 'group'):
-            self.use_bias = False
             self.gamma_initializer = initializers.get(gamma_initializer)
             self.gamma_regularizer = regularizers.get(gamma_regularizer)
             self.gamma_constraint = constraints.get(gamma_constraint)
-        elif not normalization:
-            self.use_bias = False
-            self.gamma_initializer = None
-            self.gamma_regularizer = None
-            self.gamma_constraint = None
         else:
-            self.use_bias = True
             self.gamma_initializer = None
             self.gamma_regularizer = None
             self.gamma_constraint = None
@@ -179,121 +182,187 @@ class _Residual(Layer):
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
         # Inherit from keras.engine.Layer
+        if _high_activation is not None:
+            activation = _high_activation
         self.high_activation = _high_activation
-        self.use_plain_activation = False
         if isinstance(activation, str) and (activation.casefold() in ('prelu','lrelu')):
             self.activation = activations.get(None)
             self.high_activation = activation.casefold()
             self.activity_config = activity_config # dictionary passed to activation
-            if activity_config is None:
-                self.activity_config = dict()
         elif activation is not None:
-            self.use_plain_activation = True
             self.activation = activations.get(activation)
             self.activity_config = None
-        else:
-            self.activation = activations.get(None)
-            self.activity_config = None
+        self.sub_activity_regularizer=regularizers.get(activity_regularizer)
+
+        # Reserve for build()
+        self.channelIn = None
         
         self.trainable = trainable
         self.input_spec = InputSpec(ndim=self.rank + 2)
 
     def build(self, input_shape):
-        if self.use_bias:
-            bias_initializer = self.beta_initializer
-            bias_regularizer = self.beta_regularizer
-            bias_constraint = self.beta_constraint
+        input_shape = tensor_shape.TensorShape(input_shape)
+        input_shape = input_shape.with_rank_at_least(self.rank + 2)
+        self.channelIn = input_shape.as_list()[-1]
+        if self.lfilters is None:
+            self.lfilters = self.channelIn
+        if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
+            self.layer_branch_left = None
+            left_shape = input_shape
         else:
-            bias_initializer = None
-            bias_regularizer = None
-            bias_constraint = None
-        self.layer_conv = Conv(rank = self.rank,
-                          filters = self.filters,
+            self.layer_branch_left = _AConv(rank = self.rank,
+                          filters = self.ofilters,
                           kernel_size = self.kernel_size,
                           strides = self.strides,
-                          padding = self.padding,
+                          padding = 'same',
                           data_format = self.data_format,
                           dilation_rate = self.dilation_rate,
-                          activation = None,
-                          use_bias = self.use_bias,
-                          bias_initializer = bias_initializer,
-                          bias_regularizer = bias_regularizer,
-                          bias_constraint = bias_constraint,
-                          kernel_initializer = self.kernel_initializer,
-                          kernel_regularizer = self.kernel_regularizer,
-                          kernel_constraint = self.kernel_constraint,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          gamma_initializer=self.gamma_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          gamma_regularizer=self.gamma_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          gamma_constraint=self.gamma_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
                           trainable=self.trainable)
-        self.layer_conv.build(input_shape)
+            self.layer_branch_left.build(input_shape)
+            if compat.COMPATIBLE_MODE: # for compatibility
+                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
+            left_shape = self.layer_branch_left.compute_output_shape(input_shape)
+        self.layer_first = NACUnit(rank = self.rank,
+                          filters = self.lfilters,
+                          kernel_size = 1,
+                          strides = self.strides,
+                          padding = 'same',
+                          data_format = self.data_format,
+                          dilation_rate = 1,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          gamma_initializer=self.gamma_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          gamma_regularizer=self.gamma_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          gamma_constraint=self.gamma_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
+                          trainable=self.trainable)
+        self.layer_first.build(input_shape)
         if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_conv._trainable_weights)
-        next_shape = self.layer_conv.compute_output_shape(input_shape)
-        if self.normalization and (not self.use_bias):
-            if self.normalization.casefold() == 'batch':
-                self.layer_norm = BatchNormalization(gamma_initializer = self.gamma_initializer,
-                                                     gamma_regularizer = self.gamma_regularizer,
-                                                     gamma_constraint = self.gamma_constraint,
-                                                     beta_initializer = self.beta_initializer,
-                                                     beta_regularizer = self.beta_regularizer,
-                                                     beta_constraint = self.beta_constraint,
-                                                     trainable=self.trainable)
-            elif self.normalization.casefold() == 'inst':
-                self.layer_norm = InstanceNormalization(axis=-1,
-                                                     gamma_initializer = self.gamma_initializer,
-                                                     gamma_regularizer = self.gamma_regularizer,
-                                                     gamma_constraint = self.gamma_constraint,
-                                                     beta_initializer = self.beta_initializer,
-                                                     beta_regularizer = self.beta_regularizer,
-                                                     beta_constraint = self.beta_constraint,
-                                                     trainable=self.trainable)
-            elif self.normalization.casefold() == 'group':
-                self.layer_norm = GroupNormalization(axis=-1, groups=self.groups,
-                                                     gamma_initializer = self.gamma_initializer,
-                                                     gamma_regularizer = self.gamma_regularizer,
-                                                     gamma_constraint = self.gamma_constraint,
-                                                     beta_initializer = self.beta_initializer,
-                                                     beta_regularizer = self.beta_regularizer,
-                                                     beta_constraint = self.beta_constraint,
-                                                     trainable=self.trainable)
-            self.layer_norm.build(next_shape)
+            self._trainable_weights.extend(self.layer_first._trainable_weights)
+        right_shape = self.layer_first.compute_output_shape(input_shape)
+        # Repeat blocks by depth number
+        for i in range(self.depth):
+            if i == 0:
+                sub_dilation_rate = self.dilation_rate
+            else:
+                sub_dilation_rate = 1
+            layer_middle = NACUnit(rank = self.rank,
+                          filters = self.lfilters,
+                          kernel_size = self.kernel_size,
+                          strides = 1,
+                          padding = 'same',
+                          data_format = self.data_format,
+                          dilation_rate = sub_dilation_rate,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          gamma_initializer=self.gamma_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          gamma_regularizer=self.gamma_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          gamma_constraint=self.gamma_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
+                          trainable=self.trainable)
+            layer_middle.build(right_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_norm._trainable_weights)
-            next_shape = self.layer_norm.compute_output_shape(next_shape)
-        if self.high_activation == 'prelu':
-            shared_axes = tuple(range(1,self.rank+1))
-            self.layer_actv = PReLU(shared_axes=shared_axes)
-            self.layer_actv.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_actv._trainable_weights)
-        elif self.high_activation == 'lrelu':
-            alpha = self.activity_config.get('alpha', 0.3)
-            self.layer_actv = LeakyReLU(alpha=alpha)
-            self.layer_actv.build(next_shape)
-        super(_AConv, self).build(input_shape)
+                self._trainable_weights.extend(layer_middle._trainable_weights)
+            right_shape = layer_middle.compute_output_shape(right_shape)
+            setattr(self, 'layer_middle_{0:02d}'.format(i), layer_middle)
+        self.layer_last = NACUnit(rank = self.rank,
+                          filters = self.ofilters,
+                          kernel_size = 1,
+                          strides = 1,
+                          padding = 'same',
+                          data_format = self.data_format,
+                          dilation_rate = 1,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          gamma_initializer=self.gamma_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          gamma_regularizer=self.gamma_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          gamma_constraint=self.gamma_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
+                          _use_bias=True,
+                          trainable=self.trainable)
+        self.layer_last.build(right_shape)
+        if compat.COMPATIBLE_MODE: # for compatibility
+            self._trainable_weights.extend(self.layer_last._trainable_weights)
+        right_shape = self.layer_last.compute_output_shape(right_shape)
+        self.layer_merge = Add()
+        self.layer_merge.build([left_shape, right_shape])
+        super(_Residual, self).build(input_shape)
 
     def call(self, inputs):
-        outputs = self.layer_conv(inputs)
-        if self.normalization and (not self.use_bias):
-            outputs = self.layer_norm(outputs)
-        if self.high_activation in ('prelu', 'lrelu'):
-            outputs = self.layer_actv(outputs)
-        if self.use_plain_activation:
-            return self.activation(outputs)  # pylint: disable=not-callable
+        if self.layer_branch_left is not None:
+            branch_left = self.layer_branch_left(inputs)
+        else:
+            branch_left = inputs
+        branch_right = self.layer_first(inputs)
+        for i in range(self.depth):
+            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i))
+            branch_right = layer_middle(branch_right)
+        branch_right = self.layer_last(branch_right)
+        outputs = self.layer_merge([branch_left, branch_right])
         return outputs
 
     def compute_output_shape(self, input_shape):
-        next_shape = self.layer_conv.compute_output_shape(input_shape)
-        if not self.use_bias:
-            next_shape = self.layer_norm.compute_output_shape(next_shape)
-        if self.high_activation in ('prelu', 'lrelu'):
-            next_shape = self.layer_actv.compute_output_shape(next_shape)
+        if self.layer_branch_left is not None:
+            branch_left_shape = self.layer_branch_left.compute_output_shape(input_shape)
+        else:
+            branch_left_shape = input_shape
+        branch_right_shape = self.layer_first.compute_output_shape(input_shape)
+        for i in range(self.depth):
+            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i))
+            branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
+        branch_right_shape = self.layer_last.compute_output_shape(branch_right_shape)
+        next_shape = self.layer_merge.compute_output_shape([branch_left_shape, branch_right_shape])
         return next_shape
     
     def get_config(self):
         config = {
-            'filters': self.filters,
+            'depth': self.depth + 2,
+            'ofilters': self.ofilters,
+            'lfilters': self.lfilters,
             'kernel_size': self.kernel_size,
             'strides': self.strides,
-            'padding': self.padding,
             'data_format': self.data_format,
             'dilation_rate': self.dilation_rate,
             'kernel_initializer': initializers.serialize(self.kernel_initializer),
@@ -309,45 +378,33 @@ class _Residual(Layer):
             'groups': self.groups,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
-            'activity_regularizer': regularizers.serialize(self.activity_regularizer),
+            'activity_regularizer': regularizers.serialize(self.sub_activity_regularizer),
             '_high_activation': self.high_activation
         }
-        base_config = super(_AConv, self).get_config()
+        base_config = super(_Residual, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
         
-class AConv1D(_AConv):
-    """1D convolution layer (e.g. temporal convolution).
-    This layer creates a convolution kernel that is convolved
-    with the layer input over a single spatial (or temporal) dimension
-    to produce a tensor of outputs.
-    If `use_bias` is True, a bias vector is created and added to the outputs.
-    Finally, if `activation` is not `None`,
-    it is applied to the outputs as well.
-    When using this layer as the first layer in a model,
-    provide an `input_shape` argument
-    (tuple of integers or `None`, e.g.
-    `(10, 128)` for sequences of 10 vectors of 128-dimensional vectors,
-    or `(None, 128)` for variable-length sequences of 128-dimensional vectors.
-    The abstract architecture of AConv1D is:
-    `output = activation( normalization( conv(x, W), gamma, beta ), alpha )`
-    This layer is a stack of convolution, normalization and activation.
-    As an extension, we allow users to use activating layers with parameters
-    like PRelu.
+class Residual1D(_Residual):
+    """1D residual layer.
+    `Residual1D` implements the operation:
+        `output = Conv1D(input) + Conv1D(Actv(Norm( Conv1D(Actv(Norm( ... ))) )))`
+    In some cases, the first term may not need to be convoluted.
+    This residual block supports users to use any depth. If depth=3, it is the same
+    as bottleneck design. Deeper block means more convolutional layers.
+    According to relative papers, the structure of this block has been optimized.
+    Arguments for residual block:
+        depth: An integer, indicates the repentance of convolutional blocks.
+        ofilters: Integer, the dimensionality of the output space (i.e. the number
+            of filters of output).
+        lfilters: Integer, the dimensionality of the lattent space (i.e. the number
+            of filters in the convolution branch).
     Arguments for convolution:
-        filters: Integer, the dimensionality of the output space
-            (i.e. the number of output filters in the convolution).
         kernel_size: An integer or tuple/list of a single integer,
             specifying the length of the 1D convolution window.
         strides: An integer or tuple/list of a single integer,
             specifying the stride length of the convolution.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
-        padding: One of `"valid"`, `"causal"` or `"same"` (case-insensitive).
-            `"causal"` results in causal (dilated) convolutions, e.g. output[t]
-            does not depend on input[t+1:]. Useful when modeling temporal data
-            where the model should not violate the temporal order.
-            See [WaveNet: A Generative Model for Raw Audio, section
-            2.1](https://arxiv.org/abs/1609.03499).
         data_format: A string,
             one of `channels_last` (default) or `channels_first`.
         dilation_rate: an integer or tuple/list of a single integer, specifying
@@ -396,10 +453,11 @@ class AConv1D(_AConv):
     """
 
     def __init__(self,
-               filters,
+               ofilters,
                kernel_size,
+               lfilters=None,
+               depth=3,
                strides=1,
-               padding='valid',
                data_format='channels_last',
                dilation_rate=1,
                kernel_initializer='glorot_uniform',
@@ -417,12 +475,11 @@ class AConv1D(_AConv):
                activity_config=None,
                activity_regularizer=None,
                **kwargs):
-        super(AConv1D, self).__init__(
-            rank=1,
-            filters=filters,
+        super(Residual1D, self).__init__(
+            rank=1, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
+            lfilters=lfilters,
             strides=strides,
-            padding=padding,
             data_format=data_format,
             dilation_rate=dilation_rate,
             kernel_initializer=initializers.get(kernel_initializer),
@@ -440,32 +497,22 @@ class AConv1D(_AConv):
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
             **kwargs)
-
-    def call(self, inputs):
-        if self.padding == 'causal':
-            inputs = array_ops.pad(inputs, self._compute_causal_padding())
-        return super(AConv1D, self).call(inputs)
         
-class AConv2D(_AConv):
-    """2D convolution layer (e.g. spatial convolution over images).
-    This layer creates a convolution kernel that is convolved
-    with the layer input to produce a tensor of
-    outputs. If `use_bias` is True,
-    a bias vector is created and added to the outputs. Finally, if
-    `activation` is not `None`, it is applied to the outputs as well.
-    When using this layer as the first layer in a model,
-    provide the keyword argument `input_shape`
-    (tuple of integers, does not include the sample axis),
-    e.g. `input_shape=(128, 128, 3)` for 128x128 RGB pictures
-    in `data_format="channels_last"`.
-    The abstract architecture of AConv2D is:
-    `output = activation( normalization( conv(x, W), gamma, beta ), alpha )`
-    This layer is a stack of convolution, normalization and activation.
-    As an extension, we allow users to use activating layers with parameters
-    like PRelu.
+class Residual2D(_Residual):
+    """2D residual layer (e.g. spatial convolution over images).
+    `Residual2D` implements the operation:
+        `output = Conv2D(input) + Conv2D(Actv(Norm( Conv2D(Actv(Norm( ... ))) )))`
+    In some cases, the first term may not need to be convoluted.
+    This residual block supports users to use any depth. If depth=3, it is the same
+    as bottleneck design. Deeper block means more convolutional layers.
+    According to relative papers, the structure of this block has been optimized.
+    Arguments for residual block:
+        depth: An integer, indicates the repentance of convolutional blocks.
+        ofilters: Integer, the dimensionality of the output space (i.e. the number
+            of filters of output).
+        lfilters: Integer, the dimensionality of the lattent space (i.e. the number
+            of filters in the convolution branch).
     Arguments for convolution:
-        filters: Integer, the dimensionality of the output space
-          (i.e. the number of output filters in the convolution).
         kernel_size: An integer or tuple/list of 2 integers, specifying the
             height and width of the 2D convolution window.
             Can be a single integer to specify the same value for
@@ -476,7 +523,6 @@ class AConv2D(_AConv):
             all spatial dimensions.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
-        padding: one of `"valid"` or `"same"` (case-insensitive).
         data_format: A string,
             one of `channels_last` (default) or `channels_first`.
             The ordering of the dimensions in the inputs.
@@ -541,10 +587,11 @@ class AConv2D(_AConv):
     """
 
     def __init__(self,
-               filters,
+               ofilters,
                kernel_size,
+               lfilters=None,
+               depth=3,
                strides=(1, 1),
-               padding='valid',
                data_format='channels_last',
                dilation_rate=(1, 1),
                kernel_initializer='glorot_uniform',
@@ -562,12 +609,11 @@ class AConv2D(_AConv):
                activity_config=None,
                activity_regularizer=None,
                **kwargs):
-        super(AConv2D, self).__init__(
-            rank=2,
-            filters=filters,
+        super(Residual2D, self).__init__(
+            rank=2, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
+            lfilters=lfilters,
             strides=strides,
-            padding=padding,
             data_format=data_format,
             dilation_rate=dilation_rate,
             kernel_initializer=initializers.get(kernel_initializer),
@@ -586,27 +632,21 @@ class AConv2D(_AConv):
             activity_regularizer=regularizers.get(activity_regularizer),
             **kwargs)
         
-class AConv3D(_AConv):
-    """3D convolution layer (e.g. spatial convolution over volumes).
-    This layer creates a convolution kernel that is convolved
-    with the layer input to produce a tensor of
-    outputs. If `use_bias` is True,
-    a bias vector is created and added to the outputs. Finally, if
-    `activation` is not `None`, it is applied to the outputs as well.
-    When using this layer as the first layer in a model,
-    provide the keyword argument `input_shape`
-    (tuple of integers, does not include the sample axis),
-    e.g. `input_shape=(128, 128, 128, 1)` for 128x128x128 volumes
-    with a single channel,
-    in `data_format="channels_last"`.
-    The abstract architecture of AConv3D is:
-    `output = activation( normalization( conv(x, W), gamma, beta ), alpha )`
-    This layer is a stack of convolution, normalization and activation.
-    As an extension, we allow users to use activating layers with parameters
-    like PRelu.
+class Residual3D(_Residual):
+    """3D residual layer (e.g. spatial convolution over volumes).
+    `Residual3D` implements the operation:
+        `output = Conv3D(input) + Conv3D(Actv(Norm( Conv3D(Actv(Norm( ... ))) )))`
+    In some cases, the first term may not need to be convoluted.
+    This residual block supports users to use any depth. If depth=3, it is the same
+    as bottleneck design. Deeper block means more convolutional layers.
+    According to relative papers, the structure of this block has been optimized.
+    Arguments for residual block:
+        depth: An integer, indicates the repentance of convolutional blocks.
+        ofilters: Integer, the dimensionality of the output space (i.e. the number
+            of filters of output).
+        lfilters: Integer, the dimensionality of the lattent space (i.e. the number
+            of filters in the convolution branch).
     Arguments for convolution:
-        filters: Integer, the dimensionality of the output space
-            (i.e. the number of output filters in the convolution).
         kernel_size: An integer or tuple/list of 3 integers, specifying the
             depth, height and width of the 3D convolution window.
             Can be a single integer to specify the same value for
@@ -618,7 +658,6 @@ class AConv3D(_AConv):
             all spatial dimensions.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
-        padding: one of `"valid"` or `"same"` (case-insensitive).
         data_format: A string,
             one of `channels_last` (default) or `channels_first`.
             The ordering of the dimensions in the inputs.
@@ -688,10 +727,11 @@ class AConv3D(_AConv):
     """
 
     def __init__(self,
-               filters,
+               ofilters,
                kernel_size,
+               lfilters=None,
+               depth=3,
                strides=(1, 1, 1),
-               padding='valid',
                data_format='channels_last',
                dilation_rate=(1, 1, 1),
                kernel_initializer='glorot_uniform',
@@ -709,12 +749,11 @@ class AConv3D(_AConv):
                activity_config=None,
                activity_regularizer=None,
                **kwargs):
-        super(AConv3D, self).__init__(
-            rank=3,
-            filters=filters,
+        super(Residual3D, self).__init__(
+            rank=3, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
+            lfilters=lfilters,
             strides=strides,
-            padding=padding,
             data_format=data_format,
             dilation_rate=dilation_rate,
             kernel_initializer=initializers.get(kernel_initializer),
@@ -733,31 +772,34 @@ class AConv3D(_AConv):
             activity_regularizer=regularizers.get(activity_regularizer),
             **kwargs)
             
-class _AConvTranspose(Layer):
-    """Modern transposed convolution layer (sometimes called Deconvolution).
-    Abstract nD transposed convolution layer (private, used as implementation base).
-    `_AConvTranspose` implements the operation:
-    `output = activation( normalization( convTranspose(x, W), gamma, beta ), alpha )`
-    This layer is a stack of transposed convolution, normalization and activation.
-    As an extension, we allow users to use activating layers with parameters
-    like PRelu.
-    Arguments for convolution:
+class _ResidualTranspose(Layer):
+    """Modern transposed residual layer (sometimes called Residual deconvolution).
+    Abstract nD residual layer (private, used as implementation base).
+    `_ResidualTranspose` implements the operation:
+        `output = DeConv(input) + DeConv(Actv(Norm( DeConv(Actv(Norm( ... ))) )))`
+    In some cases, the first term may not need to be convoluted.
+    Such a structure is mainly brought from:
+        Bottleneck structure: Deep Residual Learning for Image Recognition
+            https://arxiv.org/abs/1512.03385
+        Sublayer order: Identity Mappings in Deep Residual Networks
+            https://arxiv.org/abs/1603.05027v3
+    Experiments show that the aforementioned implementation may be the optimal
+    design for residual block. We popularize the residual block into the case that
+    enables any depth.
+    Arguments for residual block:
         rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
-        filters: Integer, the dimensionality of the output space (i.e. the number
-            of filters in the convolution).
+        depth: An integer, indicates the repentance of convolutional blocks.
+        ofilters: Integer, the dimensionality of the output space (i.e. the number
+            of filters of output).
+        lfilters: Integer, the dimensionality of the lattent space (i.e. the number
+            of filters in the convolution branch).
+    Arguments for convolution:
         kernel_size: An integer or tuple/list of n integers, specifying the
             length of the convolution window.
-        modenew: The realization mode of this layer, could be 
-            (1) True: use upsampling-padding-conv work-flow to replace transposed 
-                convolution.
-            (2) False: use plain transposed convolution.
-            Indeed, we recommend users to use this mode, however, users could
-            deactivate this mode by switch the global switch in this module.
         strides: An integer or tuple/list of n integers,
             specifying the stride length of the convolution.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
-        padding: One of `"valid"`,  `"same"`.
         output_mshape: (Only avaliable for new-style API) An integer or tuple/list
             of the desired output shape. When setting this option, `output_padding`
             and `out_cropping` would be inferred from the input shape, which means
@@ -829,19 +871,13 @@ class _AConvTranspose(Layer):
         activity_regularizer: Regularizer function applied to
             the output of the layer (its "activation").
             (see [regularizer](../regularizers.md)).
-    References:
-        - [A guide to convolution arithmetic for deep
-            learning](https://arxiv.org/abs/1603.07285v1)
-        - [Deconvolutional
-            Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
     """
 
     def __init__(self, rank,
-                 filters,
+                 depth, ofilters,
                  kernel_size,
-                 modenew=None,
+                 lfilters=None,
                  strides=1,
-                 padding='valid',
                  output_mshape=None,
                  output_padding=None,
                  output_cropping=None,
@@ -868,56 +904,41 @@ class _AConvTranspose(Layer):
         if 'input_shape' not in kwargs and 'input_dim' in kwargs:
           kwargs['input_shape'] = (kwargs.pop('input_dim'),)
 
-        super(_AConvTranspose, self).__init__(trainable=trainable, name=name, activity_regularizer=regularizers.get(activity_regularizer), **kwargs)
+        super(_ResidualTranspose, self).__init__(trainable=trainable, name=name, **kwargs)
         # Inherit from keras.layers._Conv
         self.rank = rank
-        if modenew is not None:
-            self.modenew = modenew
-        else:
-            self.modenew = _get_macro()
-        self.filters = filters
+        self.depth = depth - 2
+        self.ofilters = ofilters
+        self.lfilters = lfilters
+        if self.depth < 1:
+            raise ValueError('The depth of the residual block should be >= 3.')
         self.kernel_size = conv_utils.normalize_tuple(
             kernel_size, rank, 'kernel_size')
         self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
-        self.padding = conv_utils.normalize_padding(padding)
-        if (self.padding == 'causal' and not isinstance(self, AConv1D)):
-            raise ValueError('Causal padding is only supported for `AConv1D`.')
-        if output_padding is not None:
-            if self.modenew:
-                self.output_padding = output_padding
-            else:
-                self.output_padding = conv_utils.normalize_tuple(output_padding, rank, 'output_padding')
-        else:
-            self.output_padding = None
+        self.output_padding = output_padding
         self.output_mshape = None
         self.output_cropping = None
-        if self.modenew:
-            if output_mshape:
-                self.output_mshape = output_mshape
-            if output_cropping:
-                self.output_cropping = output_cropping
+        if output_mshape:
+            self.output_mshape = output_mshape
+        if output_cropping:
+            self.output_cropping = output_cropping
         self.data_format = conv_utils.normalize_data_format(data_format)
         if rank == 1 and self.data_format == 'channels_first':
             raise ValueError('Does not support channels_first data format for 1D case due to the limitation of upsampling method.')
         self.dilation_rate = conv_utils.normalize_tuple(
             dilation_rate, rank, 'dilation_rate')
+        if (not _check_dl_func(self.dilation_rate)) and (not _check_dl_func(self.strides)):
+            raise ValueError('Does not support dilation_rate when strides > 1.')
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
         self.kernel_constraint = constraints.get(kernel_constraint)
         # Inherit from mdnt.layers.normalize
         self.normalization = normalization
         if isinstance(normalization, str) and normalization in ('batch', 'inst', 'group'):
-            self.use_bias = False
             self.gamma_initializer = initializers.get(gamma_initializer)
             self.gamma_regularizer = regularizers.get(gamma_regularizer)
             self.gamma_constraint = constraints.get(gamma_constraint)
-        elif not normalization:
-            self.use_bias = False
-            self.gamma_initializer = None
-            self.gamma_regularizer = None
-            self.gamma_constraint = None
         else:
-            self.use_bias = True
             self.gamma_initializer = None
             self.gamma_regularizer = None
             self.gamma_constraint = None
@@ -926,21 +947,20 @@ class _AConvTranspose(Layer):
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
         # Inherit from keras.engine.Layer
+        if _high_activation is not None:
+            activation = _high_activation
         self.high_activation = _high_activation
-        self.use_plain_activation = False
         if isinstance(activation, str) and (activation.casefold() in ('prelu','lrelu')):
             self.activation = activations.get(None)
             self.high_activation = activation.casefold()
-            self.activity_config = activity_config
-            if activity_config is None:
-                self.activity_config = dict()
+            self.activity_config = activity_config # dictionary passed to activation
         elif activation is not None:
-            self.use_plain_activation = True
             self.activation = activations.get(activation)
             self.activity_config = None
-        else:
-            self.activation = activations.get(None)
-            self.activity_config = None
+        self.sub_activity_regularizer=regularizers.get(activity_regularizer)
+
+        # Reserve for build()
+        self.channelIn = None
         
         self.trainable = trainable
         self.input_spec = InputSpec(ndim=self.rank + 2)
@@ -948,286 +968,262 @@ class _AConvTranspose(Layer):
     def build(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
-        if self.use_bias:
-            bias_initializer = self.beta_initializer
-            bias_regularizer = self.beta_regularizer
-            bias_constraint = self.beta_constraint
+        self.channelIn = input_shape.as_list()[-1]
+        if self.lfilters is None:
+            self.lfilters = self.channelIn
+        # If setting output_mshape, need to infer output_padding & output_cropping
+        if self.output_mshape is not None:
+            if not isinstance(self.output_mshape, (list, tuple)):
+                l_output_mshape = self.output_mshape.as_list()
+            else:
+                l_output_mshape = self.output_mshape
+            l_output_mshape = l_output_mshape[1:-1]
+            l_input_shape = input_shape.as_list()[1:-1]
+            self.output_padding = []
+            self.output_cropping = []
+            for i in range(self.rank):
+                get_shape_diff = l_output_mshape[i] - l_input_shape[i]*max(self.strides[i], self.dilation_rate[i])
+                if get_shape_diff > 0:
+                    b_inf = get_shape_diff // 2
+                    b_sup = b_inf + get_shape_diff % 2
+                    self.output_padding.append((b_inf, b_sup))
+                    self.output_cropping.append((0, 0))
+                elif get_shape_diff < 0:
+                    get_shape_diff = -get_shape_diff
+                    b_inf = get_shape_diff // 2
+                    b_sup = b_inf + get_shape_diff % 2
+                    self.output_cropping.append((b_inf, b_sup))
+                    self.output_padding.append((0, 0))
+                else:
+                    self.output_cropping.append((0, 0))
+                    self.output_padding.append((0, 0))
+            deFlag_padding = 0
+            deFlag_cropping = 0
+            for i in range(self.rank):
+                smp = self.output_padding[i]
+                if smp[0] == 0 and smp[1] == 0:
+                    deFlag_padding += 1
+                smp = self.output_cropping[i]
+                if smp[0] == 0 and smp[1] == 0:
+                    deFlag_cropping += 1
+            if deFlag_padding >= self.rank:
+                self.output_padding = None
+            else:
+                self.output_padding = tuple(self.output_padding)
+            if deFlag_cropping >= self.rank:
+                self.output_cropping = None
+            else:
+                self.output_cropping = tuple(self.output_cropping)
+        if self.rank == 1:
+            self.layer_uppool = UpSampling1D(size=self.strides[0])
+            self.layer_uppool.build(input_shape)
+            next_shape = self.layer_uppool.compute_output_shape(input_shape)
+            if self.output_padding is not None:
+                self.layer_padding = ZeroPadding1D(padding=self.output_padding)[0] # Necessary for 1D case, because we need to pick (a,b) from ((a, b))
+                self.layer_padding.build(next_shape)
+                next_shape = self.layer_padding.compute_output_shape(next_shape)
+            else:
+                self.layer_padding = None
+        elif self.rank == 2:
+            self.layer_uppool = UpSampling2D(size=self.strides, data_format=self.data_format)
+            self.layer_uppool.build(input_shape)
+            next_shape = self.layer_uppool.compute_output_shape(input_shape)
+            if self.output_padding is not None:
+                self.layer_padding = ZeroPadding2D(padding=self.output_padding, data_format=self.data_format)
+                self.layer_padding.build(next_shape)
+                next_shape = self.layer_padding.compute_output_shape(next_shape)
+            else:
+                self.layer_padding = None
+        elif self.rank == 3:
+            self.layer_uppool = UpSampling3D(size=self.strides, data_format=self.data_format)
+            self.layer_uppool.build(input_shape)
+            next_shape = self.layer_uppool.compute_output_shape(input_shape)
+            if self.output_padding is not None:
+                self.layer_padding = ZeroPadding3D(padding=self.output_padding, data_format=self.data_format)
+                self.layer_padding.build(next_shape)
+                next_shape = self.layer_padding.compute_output_shape(next_shape)
+            else:
+                self.layer_padding = None
         else:
-            bias_initializer = None
-            bias_regularizer = None
-            bias_constraint = None
-        if self.modenew:
-            # If setting output_mshape, need to infer output_padding & output_cropping
-            if self.output_mshape is not None:
-                if not isinstance(self.output_mshape, (list, tuple)):
-                    l_output_mshape = self.output_mshape.as_list()
-                else:
-                    l_output_mshape = self.output_mshape
-                l_output_mshape = l_output_mshape[1:-1]
-                l_input_shape = input_shape.as_list()[1:-1]
-                self.output_padding = []
-                self.output_cropping = []
-                for i in range(self.rank):
-                    get_shape_diff = l_output_mshape[i] - l_input_shape[i]*max(self.strides[i], self.dilation_rate[i])
-                    if get_shape_diff > 0:
-                        b_inf = get_shape_diff // 2
-                        b_sup = b_inf + get_shape_diff % 2
-                        self.output_padding.append((b_inf, b_sup))
-                        self.output_cropping.append((0, 0))
-                    elif get_shape_diff < 0:
-                        get_shape_diff = -get_shape_diff
-                        b_inf = get_shape_diff // 2
-                        b_sup = b_inf + get_shape_diff % 2
-                        self.output_cropping.append((b_inf, b_sup))
-                        self.output_padding.append((0, 0))
-                    else:
-                        self.output_cropping.append((0, 0))
-                        self.output_padding.append((0, 0))
-                deFlag_padding = 0
-                deFlag_cropping = 0
-                for i in range(self.rank):
-                    smp = self.output_padding[i]
-                    if smp[0] == 0 and smp[1] == 0:
-                        deFlag_padding += 1
-                    smp = self.output_cropping[i]
-                    if smp[0] == 0 and smp[1] == 0:
-                        deFlag_cropping += 1
-                if deFlag_padding >= self.rank:
-                    self.output_padding = None
-                else:
-                    self.output_padding = tuple(self.output_padding)
-                if deFlag_cropping >= self.rank:
-                    self.output_cropping = None
-                else:
-                    self.output_cropping = tuple(self.output_cropping)
+            raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
+        if self.ofilters == self.channelIn:
+            self.layer_branch_left = None
+            left_shape = next_shape
+        else:
+            self.layer_branch_left = _AConv(rank = self.rank,
+                          filters = self.ofilters,
+                          kernel_size = self.kernel_size,
+                          strides = 1,
+                          padding = 'same',
+                          data_format = self.data_format,
+                          dilation_rate = self.dilation_rate,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          gamma_initializer=self.gamma_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          gamma_regularizer=self.gamma_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          gamma_constraint=self.gamma_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
+                          trainable=self.trainable)
+            self.layer_branch_left.build(next_shape)
+            if compat.COMPATIBLE_MODE: # for compatibility
+                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
+            left_shape = self.layer_branch_left.compute_output_shape(next_shape)
+        self.layer_first = NACUnit(rank = self.rank,
+                          filters = self.lfilters,
+                          kernel_size = 1,
+                          strides = 1,
+                          padding = 'same',
+                          data_format = self.data_format,
+                          dilation_rate = 1,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
+                          trainable=self.trainable)
+        self.layer_first.build(next_shape)
+        if compat.COMPATIBLE_MODE: # for compatibility
+            self._trainable_weights.extend(self.layer_first._trainable_weights)
+        right_shape = self.layer_first.compute_output_shape(next_shape)
+        # Repeat blocks by depth number
+        for i in range(self.depth):
+            if i == 0:
+                sub_dilation_rate = self.dilation_rate
+            else:
+                sub_dilation_rate = 1
+            layer_middle = NACUnit(rank = self.rank,
+                          filters = self.lfilters,
+                          kernel_size = self.kernel_size,
+                          strides = 1,
+                          padding = 'same',
+                          data_format = self.data_format,
+                          dilation_rate = sub_dilation_rate,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          gamma_initializer=self.gamma_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          gamma_regularizer=self.gamma_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          gamma_constraint=self.gamma_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
+                          trainable=self.trainable)
+            layer_middle.build(right_shape)
+            if compat.COMPATIBLE_MODE: # for compatibility
+                self._trainable_weights.extend(layer_middle._trainable_weights)
+            right_shape = layer_middle.compute_output_shape(right_shape)
+            setattr(self, 'layer_middle_{0:02d}'.format(i), layer_middle)
+        self.layer_last = NACUnit(rank = self.rank,
+                          filters = self.ofilters,
+                          kernel_size = 1,
+                          strides = 1,
+                          padding = 'same',
+                          data_format = self.data_format,
+                          dilation_rate = 1,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
+                          _use_bias=True,
+                          trainable=self.trainable)
+        self.layer_last.build(right_shape)
+        if compat.COMPATIBLE_MODE: # for compatibility
+            self._trainable_weights.extend(self.layer_last._trainable_weights)
+        right_shape = self.layer_last.compute_output_shape(right_shape)
+        self.layer_merge = Add()
+        self.layer_merge.build([left_shape, right_shape])
+        next_shape = self.layer_merge.compute_output_shape([left_shape, right_shape])
+        if self.output_cropping is not None:
             if self.rank == 1:
-                self.layer_uppool = UpSampling1D(size=self.strides[0])
-                self.layer_uppool.build(input_shape)
-                next_shape = self.layer_uppool.compute_output_shape(input_shape)
-                if self.output_padding is not None:
-                    self.layer_padding = ZeroPadding1D(padding=self.output_padding)[0] # Necessary for 1D case, because we need to pick (a,b) from ((a, b))
-                    self.layer_padding.build(next_shape)
-                    next_shape = self.layer_padding.compute_output_shape(next_shape)
-                else:
-                    self.layer_padding = None
-                if self.output_cropping is not None:
-                    self.layer_cropping = Cropping1D(cropping=self.output_cropping)[0]
-                    self.layer_cropping.build(next_shape)
-                    next_shape = self.layer_cropping.compute_output_shape(next_shape)
-                else:
-                    self.layer_cropping = None
+                self.layer_cropping = Cropping1D(cropping=self.output_cropping)[0]
             elif self.rank == 2:
-                self.layer_uppool = UpSampling2D(size=self.strides, data_format=self.data_format)
-                self.layer_uppool.build(input_shape)
-                next_shape = self.layer_uppool.compute_output_shape(input_shape)
-                if self.output_padding is not None:
-                    self.layer_padding = ZeroPadding2D(padding=self.output_padding, data_format=self.data_format)
-                    self.layer_padding.build(next_shape)
-                    next_shape = self.layer_padding.compute_output_shape(next_shape)
-                else:
-                    self.layer_padding = None
-                if self.output_cropping is not None:
-                    self.layer_cropping = Cropping2D(cropping=self.output_cropping)
-                    self.layer_cropping.build(next_shape)
-                    next_shape = self.layer_cropping.compute_output_shape(next_shape)
-                else:
-                    self.layer_cropping = None
+                self.layer_cropping = Cropping2D(cropping=self.output_cropping)
             elif self.rank == 3:
-                self.layer_uppool = UpSampling3D(size=self.strides, data_format=self.data_format)
-                self.layer_uppool.build(input_shape)
-                next_shape = self.layer_uppool.compute_output_shape(input_shape)
-                if self.output_padding is not None:
-                    self.layer_padding = ZeroPadding3D(padding=self.output_padding, data_format=self.data_format)
-                    self.layer_padding.build(next_shape)
-                    next_shape = self.layer_padding.compute_output_shape(next_shape)
-                else:
-                    self.layer_padding = None
-                if self.output_cropping is not None:
-                    self.layer_cropping = Cropping3D(cropping=self.output_cropping)
-                    self.layer_cropping.build(next_shape)
-                    next_shape = self.layer_cropping.compute_output_shape(next_shape)
-                else:
-                    self.layer_cropping = None
+                self.layer_cropping = Cropping3D(cropping=self.output_cropping)
             else:
                 raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
-            self.layer_conv = Conv(rank = self.rank,
-                              filters = self.filters,
-                              kernel_size = self.kernel_size,
-                              strides = 1,
-                              padding = self.padding,
-                              data_format = self.data_format,
-                              dilation_rate = self.dilation_rate,
-                              activation = None,
-                              use_bias = self.use_bias,
-                              bias_initializer = bias_initializer,
-                              bias_regularizer = bias_regularizer,
-                              bias_constraint = bias_constraint,
-                              kernel_initializer = self.kernel_initializer,
-                              kernel_regularizer = self.kernel_regularizer,
-                              kernel_constraint = self.kernel_constraint,
-                              trainable=self.trainable)
-            self.layer_conv.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_conv._trainable_weights)
-            next_shape = self.layer_conv.compute_output_shape(next_shape)
+            self.layer_cropping.build(next_shape)
+            next_shape = self.layer_cropping.compute_output_shape(next_shape)
         else:
-            if self.rank == 1:
-                input_shape = input_shape[:1].concatenate([1,]).concatenate(input_shape[1:])
-                if self.output_padding is None:
-                    output_padding = None
-                else:
-                    output_padding = (1, *self.output_padding)
-                self.layer_deconv = Conv2DTranspose(filters = self.filters,
-                                    kernel_size = (1, *self.kernel_size),
-                                    strides = (1, *self.strides),
-                                    padding = self.padding,
-                                    output_padding = output_padding,
-                                    data_format = self.data_format,
-                                    dilation_rate = (1, *self.dilation_rate),
-                                    activation = None,
-                                    use_bias = self.use_bias,
-                                    bias_initializer = bias_initializer,
-                                    bias_regularizer = bias_regularizer,
-                                    bias_constraint = bias_constraint,
-                                    kernel_initializer = self.kernel_initializer,
-                                    kernel_regularizer = self.kernel_regularizer,
-                                    kernel_constraint = self.kernel_constraint,
-                                    trainable=self.trainable)
-            elif self.rank == 2:
-                self.layer_deconv = Conv2DTranspose(filters = self.filters,
-                                    kernel_size = self.kernel_size,
-                                    strides = self.strides,
-                                    padding = self.padding,
-                                    output_padding = self.output_padding,
-                                    data_format = self.data_format,
-                                    dilation_rate = self.dilation_rate,
-                                    activation = None,
-                                    use_bias = self.use_bias,
-                                    bias_initializer = bias_initializer,
-                                    bias_regularizer = bias_regularizer,
-                                    bias_constraint = bias_constraint,
-                                    kernel_initializer = self.kernel_initializer,
-                                    kernel_regularizer = self.kernel_regularizer,
-                                    kernel_constraint = self.kernel_constraint,
-                                    trainable=self.trainable)
-            elif self.rank == 3:
-                self.layer_deconv = Conv3DTranspose(filters = self.filters,
-                                    kernel_size = self.kernel_size,
-                                    strides = self.strides,
-                                    padding = self.padding,
-                                    output_padding = self.output_padding,
-                                    data_format = self.data_format,
-                                    dilation_rate = self.dilation_rate,
-                                    activation = None,
-                                    use_bias = self.use_bias,
-                                    bias_initializer = bias_initializer,
-                                    bias_regularizer = bias_regularizer,
-                                    bias_constraint = bias_constraint,
-                                    kernel_initializer = self.kernel_initializer,
-                                    kernel_regularizer = self.kernel_regularizer,
-                                    kernel_constraint = self.kernel_constraint,
-                                    trainable=self.trainable)
-            else:
-                raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
-            self.layer_deconv.build(input_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_deconv._trainable_weights)
-            next_shape = self.layer_deconv.compute_output_shape(input_shape)
-            if self.rank == 1:
-                next_shape = next_shape[:1].concatenate(next_shape[2:])
-        if self.normalization and (not self.use_bias):
-            if self.normalization.casefold() == 'batch':
-                self.layer_norm = BatchNormalization(gamma_initializer = self.gamma_initializer,
-                                                     gamma_regularizer = self.gamma_regularizer,
-                                                     gamma_constraint = self.gamma_constraint,
-                                                     beta_initializer = self.beta_initializer,
-                                                     beta_regularizer = self.beta_regularizer,
-                                                     beta_constraint = self.beta_constraint,
-                                                     trainable=self.trainable)
-            elif self.normalization.casefold() == 'inst':
-                self.layer_norm = InstanceNormalization(axis=-1,
-                                                     gamma_initializer = self.gamma_initializer,
-                                                     gamma_regularizer = self.gamma_regularizer,
-                                                     gamma_constraint = self.gamma_constraint,
-                                                     beta_initializer = self.beta_initializer,
-                                                     beta_regularizer = self.beta_regularizer,
-                                                     beta_constraint = self.beta_constraint,
-                                                     trainable=self.trainable)
-            elif self.normalization.casefold() == 'group':
-                self.layer_norm = GroupNormalization(axis=-1, groups=self.groups,
-                                                     gamma_initializer = self.gamma_initializer,
-                                                     gamma_regularizer = self.gamma_regularizer,
-                                                     gamma_constraint = self.gamma_constraint,
-                                                     beta_initializer = self.beta_initializer,
-                                                     beta_regularizer = self.beta_regularizer,
-                                                     beta_constraint = self.beta_constraint,
-                                                     trainable=self.trainable)
-            self.layer_norm.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_norm._trainable_weights)
-            next_shape = self.layer_norm.compute_output_shape(next_shape)
-        if self.high_activation == 'prelu':
-            shared_axes = tuple(range(1,self.rank+1))
-            self.layer_actv = PReLU(shared_axes=shared_axes)
-            self.layer_actv.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_actv._trainable_weights)
-        elif self.high_activation == 'lrelu':
-            alpha = self.activity_config.get('alpha', 0.3)
-            self.layer_actv = LeakyReLU(alpha=alpha)
-            self.layer_actv.build(next_shape)
-        super(_AConvTranspose, self).build(input_shape)
+            self.layer_cropping = None
+        super(_ResidualTranspose, self).build(input_shape)
 
     def call(self, inputs):
-        if self.modenew: # Apply new architecture
-            outputs = self.layer_uppool(inputs)
-            if self.layer_padding is not None:
-                outputs = self.layer_padding(outputs)
-            if self.layer_cropping is not None:
-                outputs = self.layer_cropping(outputs)
-            outputs = self.layer_conv(outputs)
-        else: # Use classic method
-            if self.rank == 1:
-                inputs = array_ops.expand_dims(inputs, axis=1)
-            outputs = self.layer_deconv(inputs)
-            if self.rank == 1:
-                outputs = array_ops.squeeze(outputs, axis=1)
-        if self.normalization and (not self.use_bias):
-            outputs = self.layer_norm(outputs)
-        if self.high_activation in ('prelu', 'lrelu'):
-            outputs = self.layer_actv(outputs)
-        if self.use_plain_activation:
-            return self.activation(outputs)  # pylint: disable=not-callable
+        outputs = self.layer_uppool(inputs)
+        if self.layer_padding is not None:
+            outputs = self.layer_padding(outputs)
+        if self.layer_branch_left is not None:
+            branch_left = self.layer_branch_left(outputs)
+        else:
+            branch_left = outputs
+        branch_right = self.layer_first(outputs)
+        for i in range(self.depth):
+            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i))
+            branch_right = layer_middle(branch_right)
+        branch_right = self.layer_last(branch_right)
+        outputs = self.layer_merge([branch_left, branch_right])
+        if self.layer_cropping is not None:
+            outputs = self.layer_cropping(outputs)
         return outputs
 
     def compute_output_shape(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
-        if self.modenew: # Apply new architecture
-            next_shape = self.layer_uppool.compute_output_shape(input_shape)
-            if self.layer_padding is not None:
-                next_shape = self.layer_padding.compute_output_shape(next_shape)
-            if self.layer_cropping is not None:
-                next_shape = self.layer_cropping.compute_output_shape(next_shape)
-            next_shape = self.layer_conv.compute_output_shape(next_shape)
-        else: # Use classic method
-            if self.rank == 1:
-                next_shape = input_shape[:1].concatenate([1,]).concatenate(input_shape[1:])
-            next_shape = self.layer_conv.compute_output_shape(next_shape)
-            if self.rank == 1:
-                next_shape = next_shape[:1].concatenate(next_shape[2:])
-        if not self.use_bias:
-            next_shape = self.layer_norm.compute_output_shape(next_shape)
-        if self.high_activation in ('prelu', 'lrelu'):
-            next_shape = self.layer_actv.compute_output_shape(next_shape)
+        next_shape = self.layer_uppool.compute_output_shape(input_shape)
+        if self.layer_padding is not None:
+            next_shape = self.layer_padding.compute_output_shape(next_shape)
+        if self.layer_branch_left is not None:
+            branch_left_shape = self.layer_branch_left.compute_output_shape(next_shape)
+        else:
+            branch_left_shape = next_shape
+        branch_right_shape = self.layer_first.compute_output_shape(next_shape)
+        for i in range(self.depth):
+            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i))
+            branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
+        branch_right_shape = self.layer_last.compute_output_shape(branch_right_shape)
+        next_shape = self.layer_merge.compute_output_shape([branch_left_shape, branch_right_shape])
+        if self.layer_cropping is not None:
+            next_shape = self.layer_cropping.compute_output_shape(next_shape)
+        next_shape = self.layer_conv.compute_output_shape(next_shape)
         return next_shape
     
     def get_config(self):
         config = {
-            'filters': self.filters,
+            'depth': self.depth + 2,
+            'ofilters': self.ofilters,
+            'lfilters': self.lfilters,
             'kernel_size': self.kernel_size,
             'strides': self.strides,
-            'padding': self.padding,
             'output_mshape': self.output_mshape,
             'output_padding': self.output_padding,
             'output_cropping': self.output_cropping,
@@ -1249,37 +1245,34 @@ class _AConvTranspose(Layer):
             'activity_regularizer': regularizers.serialize(self.activity_regularizer),
             '_high_activation': self.high_activation
         }
-        base_config = super(_AConvTranspose, self).get_config()
+        base_config = super(_ResidualTranspose, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
         
-class AConv1DTranspose(_AConvTranspose):
-    """Modern transposed convolution layer (sometimes called Deconvolution).
-    The need for transposed convolutions generally arises
-    from the desire to use a transformation going in the opposite direction
-    of a normal convolution, i.e., from something that has the shape of the
-    output of some convolution to something that has the shape of its input
-    while maintaining a connectivity pattern that is compatible with
-    said convolution.
-    When using this layer as the first layer in a model,
-    provide the keyword argument `input_shape`
-    (tuple of integers, does not include the sample axis),
-    e.g. `input_shape=(128, 3)` for 128x128 RGB pictures
-    in `data_format="channels_last"`.
-    The abstract architecture of AConv1DTranspose is:
-    `output = activation( normalization( convTranspose(x, W), gamma, beta ), alpha )`
-    This layer is a stack of transposed convolution, normalization and activation.
-    As an extension, we allow users to use activating layers with parameters
-    like PRelu.
+class Residual1DTranspose(_ResidualTranspose):
+    """Modern transposed residual layer (sometimes called Residual deconvolution).
+    `Residual1DTranspose` implements the operation:
+        `output = Conv1D(Upsamp(input)) + Conv1D(Actv(Norm( Conv1D(Actv(Norm( ... ))) )))`
+    In some cases, the first term may not need to be convoluted.
+    This residual block supports users to use any depth. If depth=3, it is the same
+    as bottleneck design. Deeper block means more convolutional layers.
+    According to relative papers, the structure of this block has been optimized.
+    The upsampling is performed on the input layer. Previous works prove that the
+    "transposed convolution" could be viewed as upsampling + plain convolution. Here
+    we adopt such a technique to realize this upsampling architecture.
+    Arguments for residual block:
+        rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
+        depth: An integer, indicates the repentance of convolutional blocks.
+        ofilters: Integer, the dimensionality of the output space (i.e. the number
+            of filters of output).
+        lfilters: Integer, the dimensionality of the lattent space (i.e. the number
+            of filters in the convolution branch).
     Arguments for convolution:
-        filters: Integer, the dimensionality of the output space (i.e. the number
-            of filters in the convolution).
         kernel_size: An integer or tuple/list of n integers, specifying the
             length of the convolution window.
         strides: An integer or tuple/list of n integers,
             specifying the stride length of the convolution.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
-        padding: One of `"valid"`,  `"same"`.
         output_mshape: (Only avaliable for new-style API) An integer or tuple/list
             of the desired output shape. When setting this option, `output_padding`
             and `out_cropping` would be inferred from the input shape, which means
@@ -1350,17 +1343,13 @@ class AConv1DTranspose(_AConvTranspose):
     Output shape:
         3D tensor with shape: `(batch_size, new_steps, filters)`
         `steps` value might have changed due to padding or strides.
-    References:
-        - [A guide to convolution arithmetic for deep
-            learning](https://arxiv.org/abs/1603.07285v1)
-        - [Deconvolutional
-            Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
     """
 
-    def __init__(self, filters,
+    def __init__(self, ofilters,
                  kernel_size,
+                 lfilters=None,
+                 depth=3,
                  strides=1,
-                 padding='valid',
                  output_mshape=None,
                  output_padding=None,
                  output_cropping=None,
@@ -1381,12 +1370,11 @@ class AConv1DTranspose(_AConvTranspose):
                  activity_config=None,
                  activity_regularizer=None,
                  **kwargs):
-        super(AConv1DTranspose, self).__init__(
-            rank=1,
-            filters=filters,
+        super(Residual1DTranspose, self).__init__(
+            rank=1, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
+            lfilters=lfilters,
             strides=strides,
-            padding=padding,
             output_mshape=output_mshape,
             output_padding=output_padding,
             output_cropping=output_cropping,
@@ -1408,27 +1396,25 @@ class AConv1DTranspose(_AConvTranspose):
             activity_regularizer=regularizers.get(activity_regularizer),
             **kwargs)
             
-class AConv2DTranspose(_AConvTranspose):
-    """Modern transposed convolution layer (sometimes called Deconvolution).
-    The need for transposed convolutions generally arises
-    from the desire to use a transformation going in the opposite direction
-    of a normal convolution, i.e., from something that has the shape of the
-    output of some convolution to something that has the shape of its input
-    while maintaining a connectivity pattern that is compatible with
-    said convolution.
-    When using this layer as the first layer in a model,
-    provide the keyword argument `input_shape`
-    (tuple of integers, does not include the sample axis),
-    e.g. `input_shape=(128, 128, 3)` for 128x128 RGB pictures
-    in `data_format="channels_last"`.
-    The abstract architecture of AConv1DTranspose is:
-    `output = activation( normalization( convTranspose(x, W), gamma, beta ), alpha )`
-    This layer is a stack of transposed convolution, normalization and activation.
-    As an extension, we allow users to use activating layers with parameters
-    like PRelu.
+class Residual2DTranspose(_ResidualTranspose):
+    """Modern transposed residual layer (sometimes called Residual deconvolution).
+    `Residual2DTranspose` implements the operation:
+        `output = Conv2D(Upsamp(input)) + Conv2D(Actv(Norm( Conv2D(Actv(Norm( ... ))) )))`
+    In some cases, the first term may not need to be convoluted.
+    This residual block supports users to use any depth. If depth=3, it is the same
+    as bottleneck design. Deeper block means more convolutional layers.
+    According to relative papers, the structure of this block has been optimized.
+    The upsampling is performed on the input layer. Previous works prove that the
+    "transposed convolution" could be viewed as upsampling + plain convolution. Here
+    we adopt such a technique to realize this upsampling architecture.
+    Arguments for residual block:
+        rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
+        depth: An integer, indicates the repentance of convolutional blocks.
+        ofilters: Integer, the dimensionality of the output space (i.e. the number
+            of filters of output).
+        lfilters: Integer, the dimensionality of the lattent space (i.e. the number
+            of filters in the convolution branch).
     Arguments for convolution:
-        filters: Integer, the dimensionality of the output space
-          (i.e. the number of output filters in the convolution).
         kernel_size: An integer or tuple/list of 2 integers, specifying the
             height and width of the 2D convolution window.
             Can be a single integer to specify the same value for
@@ -1439,7 +1425,6 @@ class AConv2DTranspose(_AConvTranspose):
             all spatial dimensions.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
-        padding: one of `"valid"` or `"same"` (case-insensitive).
         output_mshape: (Only avaliable for new-style API) An integer or tuple/list
             of the desired output shape. When setting this option, `output_padding`
             and `out_cropping` would be inferred from the input shape, which means
@@ -1534,10 +1519,11 @@ class AConv2DTranspose(_AConvTranspose):
             Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
     """
 
-    def __init__(self, filters,
+    def __init__(self, ofilters,
                  kernel_size,
+                 lfilters=None,
+                 depth=3,
                  strides=(1, 1),
-                 padding='valid',
                  output_mshape=None,
                  output_padding=None,
                  output_cropping=None,
@@ -1558,12 +1544,11 @@ class AConv2DTranspose(_AConvTranspose):
                  activity_config=None,
                  activity_regularizer=None,
                  **kwargs):
-        super(AConv2DTranspose, self).__init__(
-            rank=2,
-            filters=filters,
+        super(Residual2DTranspose, self).__init__(
+            rank=2, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
+            lfilters=lfilters,
             strides=strides,
-            padding=padding,
             output_mshape=output_mshape,
             output_padding=output_padding,
             output_cropping=output_cropping,
@@ -1585,27 +1570,25 @@ class AConv2DTranspose(_AConvTranspose):
             activity_regularizer=regularizers.get(activity_regularizer),
             **kwargs)
             
-class AConv3DTranspose(_AConvTranspose):
-    """Modern transposed convolution layer (sometimes called Deconvolution).
-    The need for transposed convolutions generally arises
-    from the desire to use a transformation going in the opposite direction
-    of a normal convolution, i.e., from something that has the shape of the
-    output of some convolution to something that has the shape of its input
-    while maintaining a connectivity pattern that is compatible with
-    said convolution.
-    When using this layer as the first layer in a model,
-    provide the keyword argument `input_shape`
-    (tuple of integers, does not include the sample axis),
-    e.g. `input_shape=(128, 128, 128, 3)` for a 128x128x128 volume with 3 channels
-    if `data_format="channels_last"`.
-    The abstract architecture of AConv1DTranspose is:
-    `output = activation( normalization( convTranspose(x, W), gamma, beta ), alpha )`
-    This layer is a stack of transposed convolution, normalization and activation.
-    As an extension, we allow users to use activating layers with parameters
-    like PRelu.
+class Residual3DTranspose(_ResidualTranspose):
+    """Modern transposed residual layer (sometimes called Residual deconvolution).
+    `Residual3DTranspose` implements the operation:
+        `output = Conv3D(Upsamp(input)) + Conv3D(Actv(Norm( Conv3D(Actv(Norm( ... ))) )))`
+    In some cases, the first term may not need to be convoluted.
+    This residual block supports users to use any depth. If depth=3, it is the same
+    as bottleneck design. Deeper block means more convolutional layers.
+    According to relative papers, the structure of this block has been optimized.
+    The upsampling is performed on the input layer. Previous works prove that the
+    "transposed convolution" could be viewed as upsampling + plain convolution. Here
+    we adopt such a technique to realize this upsampling architecture.
+    Arguments for residual block:
+        rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
+        depth: An integer, indicates the repentance of convolutional blocks.
+        ofilters: Integer, the dimensionality of the output space (i.e. the number
+            of filters of output).
+        lfilters: Integer, the dimensionality of the lattent space (i.e. the number
+            of filters in the convolution branch).
     Arguments for convolution:
-        filters: Integer, the dimensionality of the output space
-          (i.e. the number of output filters in the convolution).
         kernel_size: An integer or tuple/list of 3 integers, specifying the
             depth, height and width of the 3D convolution window.
             Can be a single integer to specify the same value for
@@ -1617,7 +1600,6 @@ class AConv3DTranspose(_AConvTranspose):
             all spatial dimensions.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
-        padding: one of `"valid"` or `"same"` (case-insensitive).
         output_mshape: (Only avaliable for new-style API) An integer or tuple/list
             of the desired output shape. When setting this option, `output_padding`
             and `out_cropping` would be inferred from the input shape, which means
@@ -1714,10 +1696,11 @@ class AConv3DTranspose(_AConvTranspose):
             Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
     """
 
-    def __init__(self, filters,
+    def __init__(self, ofilters,
                  kernel_size,
+                 lfilters=None,
+                 depth=3,
                  strides=(1, 1, 1),
-                 padding='valid',
                  output_mshape=None,
                  output_padding=None,
                  output_cropping=None,
@@ -1738,12 +1721,11 @@ class AConv3DTranspose(_AConvTranspose):
                  activity_config=None,
                  activity_regularizer=None,
                  **kwargs):
-        super(AConv3DTranspose, self).__init__(
-            rank=3,
-            filters=filters,
+        super(Residual3DTranspose, self).__init__(
+            rank=3, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
+            lfilters=lfilters,
             strides=strides,
-            padding=padding,
             output_mshape=output_mshape,
             output_padding=output_padding,
             output_cropping=output_cropping,

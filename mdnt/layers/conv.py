@@ -25,7 +25,11 @@
 # Here we also implement some tied convolutional layers, note
 # that it is necessary to set name scope if using them in multi-
 # models.
-# Version: 0.3 # 2019/5/22
+# Version: 0.35 # 2019/5/28
+# Comments:
+#   1. Change the order of Cropping layer for AConvTranspose.
+#   2. Fix the bug of dilation_rate for AConvTranspose.
+# Version: 0.30 # 2019/5/22
 # Comments:
 #   Enhance the transposed convolution to enable it to infer
 #   the padding/cropping policy from desired output shape.
@@ -72,6 +76,8 @@ NEW_CONV_TRANSPOSE = True
 
 def _get_macro():
     return NEW_CONV_TRANSPOSE
+
+_check_dl_func = lambda a: all(ai==1 for ai in a)
 
 class _AConv(Layer):
     """Modern convolutional layer.
@@ -195,8 +201,8 @@ class _AConv(Layer):
             self.gamma_initializer = initializers.get(gamma_initializer)
             self.gamma_regularizer = regularizers.get(gamma_regularizer)
             self.gamma_constraint = constraints.get(gamma_constraint)
-        elif not normalization:
-            self.use_bias = False
+        elif normalization:
+            self.use_bias = True
             self.gamma_initializer = None
             self.gamma_regularizer = None
             self.gamma_constraint = None
@@ -210,6 +216,8 @@ class _AConv(Layer):
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
         # Inherit from keras.engine.Layer
+        if _high_activation is not None:
+            activation = _high_activation
         self.high_activation = _high_activation
         self.use_plain_activation = False
         if isinstance(activation, str) and (activation.casefold() in ('prelu','lrelu')):
@@ -924,18 +932,19 @@ class _AConvTranspose(Layer):
         self.output_cropping = None
         if self.modenew:
             if output_mshape:
-                self.output_mshape = output_mshape
+                if hasattr(output_mshape, 'as_list'):
+                    self.output_mshape = output_mshape.as_list()
+                else:
+                    self.output_mshape = output_mshape
             if output_cropping:
                 self.output_cropping = output_cropping
         self.data_format = conv_utils.normalize_data_format(data_format)
         if rank == 1 and self.data_format == 'channels_first':
             raise ValueError('Does not support channels_first data format for 1D case due to the limitation of upsampling method.')
-        if self.dilation_rate != 1:
-            if self.modenew:
-                self.dilation_rate = conv_utils.normalize_tuple(
-                    dilation_rate, rank, 'dilation_rate')
-            else:
-                raise ValueError('Does not support dilation_rate data format for new-style convolution API.')
+        self.dilation_rate = conv_utils.normalize_tuple(
+                dilation_rate, rank, 'dilation_rate')
+        if (not _check_dl_func(self.dilation_rate)) and (not _check_dl_func(self.strides)):
+            raise ValueError('Does not support dilation_rate when strides > 1.')
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
         self.kernel_constraint = constraints.get(kernel_constraint)
@@ -946,13 +955,13 @@ class _AConvTranspose(Layer):
             self.gamma_initializer = initializers.get(gamma_initializer)
             self.gamma_regularizer = regularizers.get(gamma_regularizer)
             self.gamma_constraint = constraints.get(gamma_constraint)
-        elif not normalization:
-            self.use_bias = False
+        elif normalization:
+            self.use_bias = True
             self.gamma_initializer = None
             self.gamma_regularizer = None
             self.gamma_constraint = None
         else:
-            self.use_bias = True
+            self.use_bias = False
             self.gamma_initializer = None
             self.gamma_regularizer = None
             self.gamma_constraint = None
@@ -961,6 +970,8 @@ class _AConvTranspose(Layer):
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
         # Inherit from keras.engine.Layer
+        if _high_activation is not None:
+            activation = _high_activation
         self.high_activation = _high_activation
         self.use_plain_activation = False
         if isinstance(activation, str) and (activation.casefold() in ('prelu','lrelu')):
@@ -1003,7 +1014,7 @@ class _AConvTranspose(Layer):
                 self.output_padding = []
                 self.output_cropping = []
                 for i in range(self.rank):
-                    get_shape_diff = l_output_mshape[i] - l_input_shape[i]*max(self.strides[i], self.dilation_rate[i])
+                    get_shape_diff = l_output_mshape[i] - l_input_shape[i]*self.strides[i]
                     if get_shape_diff > 0:
                         b_inf = get_shape_diff // 2
                         b_sup = b_inf + get_shape_diff % 2
@@ -1045,12 +1056,6 @@ class _AConvTranspose(Layer):
                     next_shape = self.layer_padding.compute_output_shape(next_shape)
                 else:
                     self.layer_padding = None
-                if self.output_cropping is not None:
-                    self.layer_cropping = Cropping1D(cropping=self.output_cropping)[0]
-                    self.layer_cropping.build(next_shape)
-                    next_shape = self.layer_cropping.compute_output_shape(next_shape)
-                else:
-                    self.layer_cropping = None
             elif self.rank == 2:
                 self.layer_uppool = UpSampling2D(size=self.strides, data_format=self.data_format)
                 self.layer_uppool.build(input_shape)
@@ -1061,12 +1066,6 @@ class _AConvTranspose(Layer):
                     next_shape = self.layer_padding.compute_output_shape(next_shape)
                 else:
                     self.layer_padding = None
-                if self.output_cropping is not None:
-                    self.layer_cropping = Cropping2D(cropping=self.output_cropping)
-                    self.layer_cropping.build(next_shape)
-                    next_shape = self.layer_cropping.compute_output_shape(next_shape)
-                else:
-                    self.layer_cropping = None
             elif self.rank == 3:
                 self.layer_uppool = UpSampling3D(size=self.strides, data_format=self.data_format)
                 self.layer_uppool.build(input_shape)
@@ -1077,12 +1076,6 @@ class _AConvTranspose(Layer):
                     next_shape = self.layer_padding.compute_output_shape(next_shape)
                 else:
                     self.layer_padding = None
-                if self.output_cropping is not None:
-                    self.layer_cropping = Cropping3D(cropping=self.output_cropping)
-                    self.layer_cropping.build(next_shape)
-                    next_shape = self.layer_cropping.compute_output_shape(next_shape)
-                else:
-                    self.layer_cropping = None
             else:
                 raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
             self.layer_conv = Conv(rank = self.rank,
@@ -1091,7 +1084,7 @@ class _AConvTranspose(Layer):
                               strides = 1,
                               padding = self.padding,
                               data_format = self.data_format,
-                              dilation_rate = 1,
+                              dilation_rate = self.dilation_rate,
                               activation = None,
                               use_bias = self.use_bias,
                               bias_initializer = bias_initializer,
@@ -1105,6 +1098,19 @@ class _AConvTranspose(Layer):
             if compat.COMPATIBLE_MODE: # for compatibility
                 self._trainable_weights.extend(self.layer_conv._trainable_weights)
             next_shape = self.layer_conv.compute_output_shape(next_shape)
+            if self.output_cropping is not None:
+                if self.rank == 1:
+                    self.layer_cropping = Cropping1D(cropping=self.output_cropping)[0]
+                elif self.rank == 2:
+                    self.layer_cropping = Cropping2D(cropping=self.output_cropping)
+                elif self.rank == 3:
+                    self.layer_cropping = Cropping3D(cropping=self.output_cropping)
+                else:
+                    raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
+                self.layer_cropping.build(next_shape)
+                next_shape = self.layer_cropping.compute_output_shape(next_shape)
+            else:
+                self.layer_cropping = None
         else:
             if self.rank == 1:
                 input_shape = input_shape[:1].concatenate([1,]).concatenate(input_shape[1:])
@@ -1218,9 +1224,9 @@ class _AConvTranspose(Layer):
             outputs = self.layer_uppool(inputs)
             if self.layer_padding is not None:
                 outputs = self.layer_padding(outputs)
+            outputs = self.layer_conv(outputs)
             if self.layer_cropping is not None:
                 outputs = self.layer_cropping(outputs)
-            outputs = self.layer_conv(outputs)
         else: # Use classic method
             if self.rank == 1:
                 inputs = array_ops.expand_dims(inputs, axis=1)
@@ -1242,9 +1248,9 @@ class _AConvTranspose(Layer):
             next_shape = self.layer_uppool.compute_output_shape(input_shape)
             if self.layer_padding is not None:
                 next_shape = self.layer_padding.compute_output_shape(next_shape)
+            next_shape = self.layer_conv.compute_output_shape(next_shape)
             if self.layer_cropping is not None:
                 next_shape = self.layer_cropping.compute_output_shape(next_shape)
-            next_shape = self.layer_conv.compute_output_shape(next_shape)
         else: # Use classic method
             if self.rank == 1:
                 next_shape = input_shape[:1].concatenate([1,]).concatenate(input_shape[1:])

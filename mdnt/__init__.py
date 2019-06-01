@@ -14,6 +14,10 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.32 # 2019/5/31
+# Comments:
+#   Finish Residual1D, Residual2D, Residual3D, Residual1DTranspose, 
+#          Residual2DTranspose, Residual3DTranspose in .layers.
 # Version: 0.28 # 2019/5/24
 # Comments:
 # 1. Fix the bug about padding for transposed dilation 

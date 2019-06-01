@@ -20,7 +20,7 @@ from .dense import DenseTied
 from .normalize import InstanceNormalization, GroupNormalization
 from .conv import AConv1D, AConv2D, AConv3D, AConv1DTranspose, AConv2DTranspose, AConv3DTranspose#, AConv1DTied, AConv2DTied, AConv3DTied
 from .external import PyExternal
-#from residual import ResBlock, ResBlockTranspose, ResBlock1D, ResBlock1DTranspose, ResBlock2D, ResBlock2DTranspose, ResBlock3D, ResBlock3DTranspose
+from .residual import Residual1D, Residual1DTranspose, Residual2D, Residual2DTranspose, Residual3D, Residual3DTranspose
 
 # Set layer dictionaries
 customObjects = {
@@ -33,6 +33,12 @@ customObjects = {
     'AConv1DTranspose': AConv1DTranspose,
     'AConv2DTranspose': AConv2DTranspose,
     'AConv3DTranspose': AConv3DTranspose,
+    'Residual1D': Residual1D,
+    'Residual2D': Residual2D,
+    'Residual3D': Residual3D,
+    'Residual1DTranspose': Residual1DTranspose,
+    'Residual2DTranspose': Residual2DTranspose,
+    'Residual3DTranspose': Residual3DTranspose,
     'PyExternal': PyExternal
 }
 

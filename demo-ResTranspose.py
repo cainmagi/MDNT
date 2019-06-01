@@ -2,7 +2,7 @@
 # -*- coding: UTF8-*- #
 '''
 ####################################################################
-# Demo for transposed convolutional layers.
+# Demo for transposed residual layers.
 # Yuchen Jin @ cainmagi@gmail.com
 # Requirements: (Pay attention to version)
 #   python 3.6
@@ -11,15 +11,15 @@
 # Test the performance of modern transposed convolutional layers.
 # Use
 # ```
-# python demo-AConvTranspose.py -m tr -s tcinst -mm inst
+# python demo-ResTranspose.py -m tr -s trinst -mm inst
 # ```
 # to train the network. Then use
 # ```
-# python demo-AConvTranspose.py -m ts -s tcinst -mm inst -rd model-...
+# python demo-ResTranspose.py -m ts -s trinst -mm inst -rd model-...
 # ```
 # to perform the test. Here we use `inst` to set instance
 # normalization.
-# Version: 1.00 # 2019/3/26
+# Version: 1.00 # 2019/5/30
 # Comments:
 #   Create this project.
 ####################################################################
@@ -74,8 +74,8 @@ def mean_loss_func(lossfunc, name=None, *args, **kwargs):
     if name is not None:
         wrap_func.__name__ = name
     return wrap_func
-    
-def build_model(mode='split'):
+
+def build_model(mode='bias'):
     # Make configuration
     mode = mode.casefold()
     if not mode in ['batch', 'inst', 'group']:
@@ -87,21 +87,28 @@ def build_model(mode='split'):
     channel_1 = 32  # 32 channels
     channel_2 = 64  # 64 channels
     channel_3 = 128  # 128 channels
-    channel_4 = 512  # 512 channels
     # this is our input placeholder
     input_img = tf.keras.layers.Input(shape=(28, 28, 1))
     # Create encode layers
     conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(input_img)
-    conv_2 = mdnt.layers.AConv2D(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(conv_1)
-    conv_3 = mdnt.layers.AConv2D(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(conv_2)
-    conv_4 = mdnt.layers.AConv2D(channel_4, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(conv_3)
-    deconv_1 = mdnt.layers.AConv2DTranspose(channel_3, (3, 3), strides=(2, 2), output_mshape=conv_3.get_shape(), normalization=mode, activation='prelu', padding='same')(conv_4)
-    deconv_2 = mdnt.layers.AConv2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu', padding='same')(deconv_1)
-    deconv_3 = mdnt.layers.AConv2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu', padding='same')(deconv_2)
-    deconv_4 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), output_mshape=input_img.get_shape(), normalization='bias', activation=tf.nn.sigmoid, padding='same')(deconv_3)
-        
+    for i in range(3):
+        conv_1 = mdnt.layers.Residual2D(channel_1, (3, 3), lfilters=channel_1//2, normalization=mode, activation='prelu')(conv_1)
+    conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), lfilters=channel_2//2, strides=(2, 2), normalization=mode, activation='prelu')(conv_1)
+    for i in range(3):
+        conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), lfilters=channel_2//2, normalization=mode, activation='prelu')(conv_2)
+    conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), lfilters=channel_3//2, strides=(2, 2), normalization=mode, activation='prelu')(conv_2)
+    for i in range(3):
+        conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), lfilters=channel_3//2, normalization=mode, activation='prelu')(conv_3)
+    # Create decode layers
+    deconv_1 = mdnt.layers.Residual2DTranspose(channel_2, (3, 3), lfilters=channel_2//2, strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu')(conv_3)
+    for i in range(3):
+        deconv_1 = mdnt.layers.Residual2D(channel_2, (3, 3), lfilters=channel_2//2, normalization=mode, activation='prelu')(deconv_1)
+    deconv_2 = mdnt.layers.Residual2DTranspose(channel_1, (3, 3), lfilters=channel_1//2, strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu')(deconv_1)
+    for i in range(3):
+        deconv_2 = mdnt.layers.Residual2D(channel_1, (3, 3), lfilters=channel_1//2, normalization=mode, activation='prelu')(deconv_2)
+    deconv_3 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), output_mshape=input_img.get_shape(), normalization='bias', padding='same', activation=tf.nn.sigmoid)(deconv_2)
     # this model maps an input to its reconstruction
-    denoiser = tf.keras.models.Model(input_img, deconv_4)
+    denoiser = tf.keras.models.Model(input_img, deconv_3)
     denoiser.summary(line_length=90, positions=[.55, .85, .95, 1.])
     
     return denoiser
@@ -227,8 +234,12 @@ if __name__ == '__main__':
     if args.mode.casefold() == 'tr' or args.mode.casefold() == 'train':
         x_train, x_test, x_train_noisy, x_test_noisy = load_data()
         denoiser = build_model(args.modelMode)
-        denoiser.compile(optimizer=mdnt.optimizers.optimizer('amsgrad', l_rate=args.learningRate), 
-                            loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'))
+        if args.modelMode.casefold() == 'bias':
+            denoiser.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
+                                loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'))
+        else:
+            denoiser.compile(optimizer=mdnt.optimizers.optimizer('amsgrad', l_rate=args.learningRate), 
+                                loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'))
         
         folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))
         if os.path.abspath(folder) == '.' or folder == '':
@@ -239,16 +250,20 @@ if __name__ == '__main__':
             tf.gfile.DeleteRecursively(folder)
         checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_loss:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
+        logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs/', args.savedPath), 
+            histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=5)
         denoiser.fit(x_train_noisy, x_train,
                     epochs=args.epoch,
                     batch_size=args.trainBatchNum,
                     shuffle=True,
-                    validation_data=(x_test_noisy, x_test),
-                    callbacks=[checkpointer])
+                    validation_data=(x_test, x_test),
+                    callbacks=[checkpointer, logger])
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
         denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})
         denoiser.summary(line_length=90, positions=[.55, .85, .95, 1.])
+        #for l in denoiser.layers:
+        #    print(l.name, l.trainable_weights)
         _, x_test, _, x_test_noisy = load_data()
         decoded_imgs = denoiser.predict(x_test_noisy[:args.testBatchNum, :])
         plot_sample(x_test[:args.testBatchNum, :], x_test_noisy[:args.testBatchNum, :], decoded_imgs, n=args.testBatchNum)
