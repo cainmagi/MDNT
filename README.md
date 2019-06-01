@@ -43,22 +43,7 @@ Now we have such progress on the semi-product:
 
 ## Demos
 
-And we have already written these demos:
-
-The following demos are working for denoising with MNIST data set.
-
-* `demo-AEdense`: Tied autoencoder based on dense layers.
-* `demo-normalize`: Normalization layers.
-* `demo-AConv`: Modern convolutional layers.
-* `demo-AConvTranspose`: Autoencoder based on modern convolutional layers.
-* `demo-AConv1DTranspose`: Autoencoder based on modern 1D convolutional layers.
-* `demo-ResTranspose`: Autoencoder based on modern residual-v2 layers.
-* `demo-InceptTranspose`: Autoencoder based on modern inception-v4 layers.
-* `demo-external-1`: External layer test 1. We use numpy-api to convert Cartesian coordinates to polar coordinates.
-* `demo-saveH5`: Save `.h5` file.
-* `demo-readH5`: Read `.h5` file.
-* `demo-readH5Multi`: Read two `.h5` files and combine them as a data set.
-* `demo-dataSet`: Use H5 IO to train and test a network.
+Check the branch [`demos`][brch-demos] to learn more details.
 
 # Update records
 
@@ -97,3 +82,5 @@ Adjust the `.data.h5py` module to make it more generalized.
 ## 0.10 @ 03/23/2019
 
 Create this project.
+
+[brch-demos]:https://github.com/cainmagi/MDNT/tree/demos
