@@ -2,6 +2,32 @@
 
 We proudly present our newest produce, a totally well-defined extension for Tensorflow-Keras users!
 
+# Instruction
+
+## First download
+
+For the users who need to clone this branch first, please use such commands to make sure that the submodule would be loaded correctly:
+
+```bash
+git clone -b demos https://github.com/cainmagi/MDNT.git mdnt-demos
+cd mdnt-demos
+git pull --recurse-submodules
+```
+
+## Update
+
+To make the demo scripts updated to the newest version, please use such a command in the project folder:
+
+```bash
+git pull
+```
+
+To make the MDNT library inside this branch updated to the newest version, please use such a command in the project folder:
+
+```bash
+git submodule update --recursive --remote
+```
+
 ## Demos
 
 And we have already written these demos:
@@ -25,4 +51,5 @@ The following demos are working for denoising with MNIST data set.
 
 ## @ 06/01/2019
 
-Move all demos into the branch `demos`.
+1. Move all demos into the branch `demos`.
+2. Add the master branch as the submodule.

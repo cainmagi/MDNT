@@ -1,0 +1,4 @@
+[submodule "mdnt"]
+	path = mdnt
+	url = https://github.com/cainmagi/MDNT.git
+	branch = master
