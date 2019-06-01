@@ -2,9 +2,9 @@
 
 We proudly present our newest produce, a totally well-defined extension for Tensorflow-Keras users!
 
-# Instruction
+## Instruction
 
-## First download
+### First download
 
 For the users who need to clone this branch first, please use such commands to make sure that the submodule would be loaded correctly:
 
@@ -14,7 +14,7 @@ cd mdnt-demos
 git pull --recurse-submodules
 ```
 
-## Update
+### Update
 
 To make the demo scripts updated to the newest version, please use such a command in the project folder:
 
