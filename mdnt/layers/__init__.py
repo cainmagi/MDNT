@@ -21,6 +21,7 @@ from .normalize import InstanceNormalization, GroupNormalization
 from .conv import AConv1D, AConv2D, AConv3D, AConv1DTranspose, AConv2DTranspose, AConv3DTranspose#, AConv1DTied, AConv2DTied, AConv3DTied
 from .external import PyExternal
 from .residual import Residual1D, Residual1DTranspose, Residual2D, Residual2DTranspose, Residual3D, Residual3DTranspose
+from .inception import Inception1D, Inception2D, Inception3D, Inception1DTranspose, Inception2DTranspose, Inception3DTranspose
 
 # Set layer dictionaries
 customObjects = {
@@ -39,6 +40,12 @@ customObjects = {
     'Residual1DTranspose': Residual1DTranspose,
     'Residual2DTranspose': Residual2DTranspose,
     'Residual3DTranspose': Residual3DTranspose,
+    'Inception1D': Inception1D,
+    'Inception2D': Inception2D,
+    'Inception3D': Inception3D,
+    'Inception1DTranspose': Inception1DTranspose,
+    'Inception2DTranspose': Inception2DTranspose,
+    'Inception3DTranspose': Inception3DTranspose,
     'PyExternal': PyExternal
 }
 

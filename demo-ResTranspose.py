@@ -8,7 +8,7 @@
 #   python 3.6
 #   tensorflow r1.13+
 #   numpy, matplotlib
-# Test the performance of modern transposed convolutional layers.
+# Test the performance of modern transposed residual layers.
 # Use
 # ```
 # python demo-ResTranspose.py -m tr -s trinst -mm inst
@@ -92,20 +92,20 @@ def build_model(mode='bias'):
     # Create encode layers
     conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(input_img)
     for i in range(3):
-        conv_1 = mdnt.layers.Residual2D(channel_1, (3, 3), lfilters=channel_1//2, normalization=mode, activation='prelu')(conv_1)
-    conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), lfilters=channel_2//2, strides=(2, 2), normalization=mode, activation='prelu')(conv_1)
+        conv_1 = mdnt.layers.Residual2D(channel_1, (3, 3), normalization=mode, activation='prelu')(conv_1)
+    conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_1)
     for i in range(3):
-        conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), lfilters=channel_2//2, normalization=mode, activation='prelu')(conv_2)
-    conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), lfilters=channel_3//2, strides=(2, 2), normalization=mode, activation='prelu')(conv_2)
+        conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), normalization=mode, activation='prelu')(conv_2)
+    conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_2)
     for i in range(3):
-        conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), lfilters=channel_3//2, normalization=mode, activation='prelu')(conv_3)
+        conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), normalization=mode, activation='prelu')(conv_3)
     # Create decode layers
-    deconv_1 = mdnt.layers.Residual2DTranspose(channel_2, (3, 3), lfilters=channel_2//2, strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu')(conv_3)
+    deconv_1 = mdnt.layers.Residual2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu')(conv_3)
     for i in range(3):
-        deconv_1 = mdnt.layers.Residual2D(channel_2, (3, 3), lfilters=channel_2//2, normalization=mode, activation='prelu')(deconv_1)
-    deconv_2 = mdnt.layers.Residual2DTranspose(channel_1, (3, 3), lfilters=channel_1//2, strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu')(deconv_1)
+        deconv_1 = mdnt.layers.Residual2D(channel_2, (3, 3), normalization=mode, activation='prelu')(deconv_1)
+    deconv_2 = mdnt.layers.Residual2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu')(deconv_1)
     for i in range(3):
-        deconv_2 = mdnt.layers.Residual2D(channel_1, (3, 3), lfilters=channel_1//2, normalization=mode, activation='prelu')(deconv_2)
+        deconv_2 = mdnt.layers.Residual2D(channel_1, (3, 3), normalization=mode, activation='prelu')(deconv_2)
     deconv_3 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), output_mshape=input_img.get_shape(), normalization='bias', padding='same', activation=tf.nn.sigmoid)(deconv_2)
     # this model maps an input to its reconstruction
     denoiser = tf.keras.models.Model(input_img, deconv_3)
@@ -206,6 +206,13 @@ if __name__ == '__main__':
         Seed of the random generaotr. If none, do not set random seed.
         '''
     )
+
+    parser.add_argument(
+        '-gn', '--gpuNumber', default=-1, type=int, metavar='int',
+        help='''\
+        The number of used GPU. If set -1, all GPUs would be visible.
+        '''
+    )
     
     args = parser.parse_args()
     def setSeed(seed):
@@ -214,6 +221,8 @@ if __name__ == '__main__':
         tf.set_random_seed(seed+1234)
     if args.seed is not None: # Set seed for reproductable results
         setSeed(args.seed)
+    if args.gpuNumber != -1:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpuNumber)
     
     def load_data():
         (x_train, _), (x_test, _) = mnist.load_data()

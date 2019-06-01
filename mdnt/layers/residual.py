@@ -230,7 +230,7 @@ class _Residual(Layer):
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
         self.channelIn = input_shape.as_list()[-1]
         if self.lfilters is None:
-            self.lfilters = self.channelIn
+            self.lfilters = max( 1, self.channelIn // 2 )
         last_use_bias = True
         if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
             self.layer_branch_left = None
@@ -243,7 +243,7 @@ class _Residual(Layer):
                           strides = self.strides,
                           padding = 'same',
                           data_format = self.data_format,
-                          dilation_rate = self.dilation_rate,
+                          dilation_rate = 1,
                           kernel_initializer=self.kernel_initializer,
                           kernel_regularizer=self.kernel_regularizer,
                           kernel_constraint=self.kernel_constraint,
@@ -997,7 +997,7 @@ class _ResidualTranspose(Layer):
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
         self.channelIn = input_shape.as_list()[-1]
         if self.lfilters is None:
-            self.lfilters = self.channelIn
+            self.lfilters = max( 1, self.channelIn // 2 )
         # If setting output_mshape, need to infer output_padding & output_cropping
         if self.output_mshape is not None:
             if not isinstance(self.output_mshape, (list, tuple)):
@@ -1085,7 +1085,7 @@ class _ResidualTranspose(Layer):
                           strides = 1,
                           padding = 'same',
                           data_format = self.data_format,
-                          dilation_rate = self.dilation_rate,
+                          dilation_rate = 1,
                           kernel_initializer=self.kernel_initializer,
                           kernel_regularizer=self.kernel_regularizer,
                           kernel_constraint=self.kernel_constraint,
@@ -1289,7 +1289,6 @@ class Residual1DTranspose(_ResidualTranspose):
     "transposed convolution" could be viewed as upsampling + plain convolution. Here
     we adopt such a technique to realize this upsampling architecture.
     Arguments for residual block:
-        rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
         depth: An integer, indicates the repentance of convolutional blocks.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).
@@ -1437,7 +1436,6 @@ class Residual2DTranspose(_ResidualTranspose):
     "transposed convolution" could be viewed as upsampling + plain convolution. Here
     we adopt such a technique to realize this upsampling architecture.
     Arguments for residual block:
-        rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
         depth: An integer, indicates the repentance of convolutional blocks.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).
@@ -1611,7 +1609,6 @@ class Residual3DTranspose(_ResidualTranspose):
     "transposed convolution" could be viewed as upsampling + plain convolution. Here
     we adopt such a technique to realize this upsampling architecture.
     Arguments for residual block:
-        rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
         depth: An integer, indicates the repentance of convolutional blocks.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).

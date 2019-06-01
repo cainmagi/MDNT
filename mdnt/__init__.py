@@ -14,6 +14,11 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.36 # 2019/6/1
+# Comments:
+#   Finish Inception1D, Inception2D, Inception3D, 
+#          Inception1DTranspose, Inception2DTranspose,
+#          Inception3DTranspose in .layers.
 # Version: 0.32 # 2019/5/31
 # Comments:
 #   Finish Residual1D, Residual2D, Residual3D, Residual1DTranspose, 
@@ -53,7 +58,7 @@ from . import optimizers
 from . import layers
 from . import data
 
-__version__ = '0.28'
+__version__ = '0.36'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

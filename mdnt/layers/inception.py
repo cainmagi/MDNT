@@ -30,6 +30,10 @@
 # ture of such a scheme is as
 #   Input + "Inception-v4 plain block"
 # We would also implement the InceptRes-v4 in this module.
+# Version: 0.20 # 2019/6/1
+# Comments:
+#   Finish the basic Inception layers, the InceptRes layers still
+#   requires to be finished.
 # Version: 0.10 # 2019/5/31
 # Comments:
 #   Create this submodule.
@@ -46,7 +50,8 @@ from tensorflow.python.keras.utils import conv_utils
 from tensorflow.python.keras.engine.base_layer import Layer
 
 from tensorflow.python.keras.layers.convolutional import Conv, UpSampling1D, UpSampling2D, UpSampling3D, ZeroPadding1D, ZeroPadding2D, ZeroPadding3D, Cropping1D, Cropping2D, Cropping3D
-from tensorflow.python.keras.layers.merge import Add
+from tensorflow.python.keras.layers.pooling import MaxPooling1D, MaxPooling2D, MaxPooling3D, AveragePooling1D, AveragePooling2D, AveragePooling3D
+from tensorflow.python.keras.layers.merge import Add, Concatenate
 from .unit import NACUnit
 from .conv import _AConv
 
@@ -58,23 +63,29 @@ else:
 
 _check_dl_func = lambda a: all(ai==1 for ai in a)
 
-class _Residual(Layer):
-    """Modern residual layer.
-    Abstract nD residual layer (private, used as implementation base).
-    `_Residual` implements the operation:
-        `output = Conv(input) + Conv(Actv(Norm( Conv(Actv(Norm( ... ))) )))`
+class _Inception(Layer):
+    """Modern inception layer.
+    Abstract nD inception layer (private, used as implementation base).
+    `_Inception` implements the operation:
+        `output = sum (i=0~D) ConvBranch(D, input)`
+    where `ConvBranch` means D-1 times convolutional layers.
+    To be specific, when D=0, this branch is low-pass filtered by pooling layer.
     In some cases, the first term may not need to be convoluted.
-    Such a structure is mainly brought from:
-        Bottleneck structure: Deep Residual Learning for Image Recognition
-            https://arxiv.org/abs/1512.03385
-        Sublayer order: Identity Mappings in Deep Residual Networks
-            https://arxiv.org/abs/1603.05027v3
-    Experiments show that the aforementioned implementation may be the optimal
-    design for residual block. We popularize the residual block into the case that
-    enables any depth.
-    Arguments for residual block:
+    Such a structure is adapted from:
+        Inception-v4, Inception-ResNet and the Impact of Residual 
+        Connections on Learning
+            https://arxiv.org/abs/1602.07261
+    The implementation here is not exactly the same as original paper. The main 
+    difference includes
+        1. The main structure is only borrowed from inception-A block.
+        2. The down sampling layer is also implemented in this class 
+           (if set strides)
+        3. We do not invoke the low-rank decomposition for the conv. kernels.
+        4. We borrowing the idea of residual-v2 block and change the order of some
+           layers. 
+    Arguments for inception block:
         rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
-        depth: An integer, indicates the repentance of convolutional blocks.
+        depth: An integer, indicates the number of network branches.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).
         lfilters: Integer, the dimensionality of the lattent space (i.e. the number
@@ -166,14 +177,16 @@ class _Residual(Layer):
         if 'input_shape' not in kwargs and 'input_dim' in kwargs:
           kwargs['input_shape'] = (kwargs.pop('input_dim'),)
 
-        super(_Residual, self).__init__(trainable=trainable, name=name, **kwargs)
+        super(_Inception, self).__init__(trainable=trainable, name=name, **kwargs)
         # Inherit from keras.layers._Conv
         self.rank = rank
-        self.depth = depth - 2
-        self.ofilters = ofilters
+        self.depth = depth
+        if depth < 1:
+            raise ValueError('The depth of the residual block should be >= 1.')
+        if ofilters % (depth+1) != 0:
+            raise ValueError('The output filter number should be the multiple of (depth+1), i.e. N * {0}'.format(depth+1))
+        self.ofilters = ofilters // (self.depth + 1)
         self.lfilters = lfilters
-        if self.depth < 1:
-            raise ValueError('The depth of the residual block should be >= 3.')
         self.kernel_size = conv_utils.normalize_tuple(
             kernel_size, rank, 'kernel_size')
         self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
@@ -224,15 +237,127 @@ class _Residual(Layer):
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
         self.channelIn = input_shape.as_list()[-1]
         if self.lfilters is None:
-            self.lfilters = self.channelIn
-        if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
-            self.layer_branch_left = None
-            left_shape = input_shape
+            self.lfilters = max( 1, self.channelIn // 2 )
+        # Consider the branch zero
+        if not _check_dl_func(self.strides):
+            if self.rank == 1:
+                self.layer_branch_zero = MaxPooling1D(pool_size=self.kernel_size, strides=self.strides, padding='same', data_format=self.data_format)
+            elif self.rank == 2:
+                self.layer_branch_zero = MaxPooling2D(pool_size=self.kernel_size, strides=self.strides, padding='same', data_format=self.data_format)
+            elif self.rank == 3:
+                self.layer_branch_zero = MaxPooling3D(pool_size=self.kernel_size, strides=self.strides, padding='same', data_format=self.data_format)
+            else:
+                raise ValueError('Rank of the inception should be 1, 2 or 3.')
         else:
-            self.layer_branch_left = _AConv(rank = self.rank,
-                          filters = self.ofilters,
-                          kernel_size = self.kernel_size,
+            if self.rank == 1:
+                self.layer_branch_zero = AveragePooling1D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
+            elif self.rank == 2:
+                self.layer_branch_zero = AveragePooling2D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
+            elif self.rank == 3:
+                self.layer_branch_zero = AveragePooling3D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
+            else:
+                raise ValueError('Rank of the inception should be 1, 2 or 3.')
+        self.layer_branch_zero.build(input_shape)
+        zero_shape = self.layer_branch_zero.compute_output_shape(input_shape)
+        # If channel does not match, use linear conv.
+        if self.channelIn != self.ofilters:
+            self.layer_branch_zero_map = _AConv(rank = self.rank,
+                        filters = self.ofilters,
+                        kernel_size = 1,
+                        strides = 1,
+                        padding = 'same',
+                        data_format = self.data_format,
+                        dilation_rate = 1,
+                        kernel_initializer=self.kernel_initializer,
+                        kernel_regularizer=self.kernel_regularizer,
+                        kernel_constraint=self.kernel_constraint,
+                        normalization=self.normalization,
+                        beta_initializer=self.beta_initializer,
+                        gamma_initializer=self.gamma_initializer,
+                        beta_regularizer=self.beta_regularizer,
+                        gamma_regularizer=self.gamma_regularizer,
+                        beta_constraint=self.beta_constraint,
+                        gamma_constraint=self.gamma_constraint,
+                        groups=self.groups,
+                        activation=None,
+                        activity_config=None,
+                        activity_regularizer=None,
+                        _high_activation=None,
+                        trainable=self.trainable)
+            self.layer_branch_zero_map.build(zero_shape)
+            if compat.COMPATIBLE_MODE: # for compatibility
+                self._trainable_weights.extend(self.layer_branch_zero_map._trainable_weights)
+            zero_shape = self.layer_branch_zero_map.compute_output_shape(zero_shape)
+        else:
+            self.layer_branch_zero_map = None
+        # Consider the branch one
+        if self.channelIn != self.ofilters:
+            self.layer_branch_one = _AConv(rank = self.rank,
+                        filters = self.ofilters,
+                        kernel_size = 1,
+                        strides = self.strides,
+                        padding = 'same',
+                        data_format = self.data_format,
+                        dilation_rate = 1,
+                        kernel_initializer=self.kernel_initializer,
+                        kernel_regularizer=self.kernel_regularizer,
+                        kernel_constraint=self.kernel_constraint,
+                        normalization=self.normalization,
+                        beta_initializer=self.beta_initializer,
+                        gamma_initializer=self.gamma_initializer,
+                        beta_regularizer=self.beta_regularizer,
+                        gamma_regularizer=self.gamma_regularizer,
+                        beta_constraint=self.beta_constraint,
+                        gamma_constraint=self.gamma_constraint,
+                        groups=self.groups,
+                        activation=None,
+                        activity_config=None,
+                        activity_regularizer=None,
+                        _high_activation=None,
+                        trainable=self.trainable)
+            self.layer_branch_one.build(input_shape)
+            if compat.COMPATIBLE_MODE: # for compatibility
+                self._trainable_weights.extend(self.layer_branch_one._trainable_weights)
+            one_shape = self.layer_branch_one.compute_output_shape(input_shape)
+        else:
+            self.layer_branch_one = None
+            one_shape = input_shape
+        # Consider branches with depth
+        depth_shape_list = []
+        for D in range(self.depth-1):
+            layer_middle_first = NACUnit(rank = self.rank,
+                          filters = self.lfilters,
+                          kernel_size = 1,
                           strides = self.strides,
+                          padding = 'same',
+                          data_format = self.data_format,
+                          dilation_rate = 1,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          gamma_initializer=self.gamma_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          gamma_regularizer=self.gamma_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          gamma_constraint=self.gamma_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
+                          trainable=self.trainable)
+            layer_middle_first.build(input_shape)
+            if compat.COMPATIBLE_MODE: # for compatibility
+                self._trainable_weights.extend(layer_middle_first._trainable_weights)
+            branch_shape = layer_middle_first.compute_output_shape(input_shape)
+            setattr(self, 'layer_middle_D{0:02d}_00'.format(D+2), layer_middle_first)
+            for i in range(D):
+                layer_middle = NACUnit(rank = self.rank,
+                          filters = self.lfilters,
+                          kernel_size = self.kernel_size,
+                          strides = 1,
                           padding = 'same',
                           data_format = self.data_format,
                           dilation_rate = self.dilation_rate,
@@ -252,50 +377,18 @@ class _Residual(Layer):
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
-            self.layer_branch_left.build(input_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
-            left_shape = self.layer_branch_left.compute_output_shape(input_shape)
-        self.layer_first = NACUnit(rank = self.rank,
-                          filters = self.lfilters,
-                          kernel_size = 1,
-                          strides = self.strides,
-                          padding = 'same',
-                          data_format = self.data_format,
-                          dilation_rate = 1,
-                          kernel_initializer=self.kernel_initializer,
-                          kernel_regularizer=self.kernel_regularizer,
-                          kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
-                          beta_initializer=self.beta_initializer,
-                          gamma_initializer=self.gamma_initializer,
-                          beta_regularizer=self.beta_regularizer,
-                          gamma_regularizer=self.gamma_regularizer,
-                          beta_constraint=self.beta_constraint,
-                          gamma_constraint=self.gamma_constraint,
-                          groups=self.groups,
-                          activation=self.activation,
-                          activity_config=self.activity_config,
-                          activity_regularizer=self.sub_activity_regularizer,
-                          _high_activation=self.high_activation,
-                          trainable=self.trainable)
-        self.layer_first.build(input_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_first._trainable_weights)
-        right_shape = self.layer_first.compute_output_shape(input_shape)
-        # Repeat blocks by depth number
-        for i in range(self.depth):
-            if i == 0:
-                sub_dilation_rate = self.dilation_rate
-            else:
-                sub_dilation_rate = 1
-            layer_middle = NACUnit(rank = self.rank,
-                          filters = self.lfilters,
+                layer_middle.build(branch_shape)
+                if compat.COMPATIBLE_MODE: # for compatibility
+                    self._trainable_weights.extend(layer_middle._trainable_weights)
+                branch_shape = layer_middle.compute_output_shape(branch_shape)
+                setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1), layer_middle)
+            layer_middle_last = NACUnit(rank = self.rank,
+                          filters = self.ofilters,
                           kernel_size = self.kernel_size,
                           strides = 1,
                           padding = 'same',
                           data_format = self.data_format,
-                          dilation_rate = sub_dilation_rate,
+                          dilation_rate = self.dilation_rate,
                           kernel_initializer=self.kernel_initializer,
                           kernel_regularizer=self.kernel_regularizer,
                           kernel_constraint=self.kernel_constraint,
@@ -312,73 +405,65 @@ class _Residual(Layer):
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
-            layer_middle.build(right_shape)
+            layer_middle_last.build(branch_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle._trainable_weights)
-            right_shape = layer_middle.compute_output_shape(right_shape)
-            setattr(self, 'layer_middle_{0:02d}'.format(i), layer_middle)
-        self.layer_last = NACUnit(rank = self.rank,
-                          filters = self.ofilters,
-                          kernel_size = 1,
-                          strides = 1,
-                          padding = 'same',
-                          data_format = self.data_format,
-                          dilation_rate = 1,
-                          kernel_initializer=self.kernel_initializer,
-                          kernel_regularizer=self.kernel_regularizer,
-                          kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
-                          beta_initializer=self.beta_initializer,
-                          gamma_initializer=self.gamma_initializer,
-                          beta_regularizer=self.beta_regularizer,
-                          gamma_regularizer=self.gamma_regularizer,
-                          beta_constraint=self.beta_constraint,
-                          gamma_constraint=self.gamma_constraint,
-                          groups=self.groups,
-                          activation=self.activation,
-                          activity_config=self.activity_config,
-                          activity_regularizer=self.sub_activity_regularizer,
-                          _high_activation=self.high_activation,
-                          _use_bias=True,
-                          trainable=self.trainable)
-        self.layer_last.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_last._trainable_weights)
-        right_shape = self.layer_last.compute_output_shape(right_shape)
-        self.layer_merge = Add()
-        self.layer_merge.build([left_shape, right_shape])
-        super(_Residual, self).build(input_shape)
+                self._trainable_weights.extend(layer_middle_last._trainable_weights)
+            branch_shape = layer_middle_last.compute_output_shape(branch_shape)
+            setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1), layer_middle_last)
+            depth_shape_list.append(branch_shape)
+        if self.data_format == 'channels_first':
+            self.layer_merge = Concatenate(axis=1)
+        else:
+            self.layer_merge = Concatenate()
+        self.layer_merge.build([zero_shape, one_shape, *depth_shape_list])
+        super(_Inception, self).build(input_shape)
 
     def call(self, inputs):
-        if self.layer_branch_left is not None:
-            branch_left = self.layer_branch_left(inputs)
+        branch_zero = self.layer_branch_zero(inputs)
+        if self.layer_branch_zero_map is not None:
+            branch_zero = self.layer_branch_zero_map(branch_zero)
+        if self.layer_branch_one is not None:
+            branch_one = self.layer_branch_one(inputs)
         else:
-            branch_left = inputs
-        branch_right = self.layer_first(inputs)
-        for i in range(self.depth):
-            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i))
-            branch_right = layer_middle(branch_right)
-        branch_right = self.layer_last(branch_right)
-        outputs = self.layer_merge([branch_left, branch_right])
+            branch_one = inputs
+        branch_middle_list = []
+        for D in range(self.depth-1):
+            layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
+            branch_middle = layer_middle_first(inputs)
+            for i in range(D):
+                layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
+                branch_middle = layer_middle(branch_middle)
+            layer_middle_last = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1))
+            branch_middle = layer_middle_last(branch_middle)
+            branch_middle_list.append(branch_middle)
+        outputs = self.layer_merge([branch_zero, branch_one, *branch_middle_list])
         return outputs
 
     def compute_output_shape(self, input_shape):
-        if self.layer_branch_left is not None:
-            branch_left_shape = self.layer_branch_left.compute_output_shape(input_shape)
+        branch_zero_shape = self.layer_branch_zero.compute_output_shape(input_shape)
+        if self.layer_branch_zero_map is not None:
+            branch_zero_shape = self.layer_branch_zero_map.compute_output_shape(branch_zero_shape)
+        if self.layer_branch_one is not None:
+            branch_one_shape = self.layer_branch_one.compute_output_shape(input_shape)
         else:
-            branch_left_shape = input_shape
-        branch_right_shape = self.layer_first.compute_output_shape(input_shape)
-        for i in range(self.depth):
-            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i))
-            branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
-        branch_right_shape = self.layer_last.compute_output_shape(branch_right_shape)
-        next_shape = self.layer_merge.compute_output_shape([branch_left_shape, branch_right_shape])
+            branch_one_shape = input_shape
+        branch_middle_shape_list = []
+        for D in range(self.depth-1):
+            layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
+            branch_middle_shape = layer_middle_first.compute_output_shape(input_shape)
+            for i in range(D):
+                layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
+                branch_middle_shape = layer_middle.compute_output_shape(branch_middle_shape)
+            layer_middle_last = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1))
+            branch_middle_shape = layer_middle_last.compute_output_shape(branch_middle_shape)
+            branch_middle_shape_list.append(branch_middle_shape)
+        next_shape = self.layer_merge.compute_output_shape([branch_zero_shape, branch_one_shape, *branch_middle_shape_list])
         return next_shape
     
     def get_config(self):
         config = {
-            'depth': self.depth + 2,
-            'ofilters': self.ofilters,
+            'depth': self.depth,
+            'ofilters': self.ofilters * (self.depth + 1),
             'lfilters': self.lfilters,
             'kernel_size': self.kernel_size,
             'strides': self.strides,
@@ -400,19 +485,26 @@ class _Residual(Layer):
             'activity_regularizer': regularizers.serialize(self.sub_activity_regularizer),
             '_high_activation': self.high_activation
         }
-        base_config = super(_Residual, self).get_config()
+        base_config = super(_Inception, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
         
-class Residual1D(_Residual):
-    """1D residual layer.
-    `Residual1D` implements the operation:
-        `output = Conv1D(input) + Conv1D(Actv(Norm( Conv1D(Actv(Norm( ... ))) )))`
+class Inception1D(_Inception):
+    """1D inception layer.
+    `Inception1D` implements the operation:
+        `output = sum (i=0~D) ConvBranch1D(D, input)`
+    where `ConvBranch1D` means D-1 times 1D convolutional layers.
+    To be specific, when D=0, this branch is low-pass filtered by pooling layer.
     In some cases, the first term may not need to be convoluted.
-    This residual block supports users to use any depth. If depth=3, it is the same
-    as bottleneck design. Deeper block means more convolutional layers.
-    According to relative papers, the structure of this block has been optimized.
-    Arguments for residual block:
-        depth: An integer, indicates the repentance of convolutional blocks.
+    The implementation here is not exactly the same as original paper. The main 
+    difference includes
+        1. The main structure is only borrowed from inception-A block.
+        2. The down sampling layer is also implemented in this class 
+           (if set strides)
+        3. We do not invoke the low-rank decomposition for the conv. kernels.
+        4. We borrowing the idea of residual-v2 block and change the order of some
+           layers. 
+    Arguments for inception block:
+        depth: An integer, indicates the number of network branches.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).
         lfilters: Integer, the dimensionality of the lattent space (i.e. the number
@@ -494,7 +586,7 @@ class Residual1D(_Residual):
                activity_config=None,
                activity_regularizer=None,
                **kwargs):
-        super(Residual1D, self).__init__(
+        super(Inception1D, self).__init__(
             rank=1, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
             lfilters=lfilters,
@@ -517,16 +609,23 @@ class Residual1D(_Residual):
             activity_regularizer=regularizers.get(activity_regularizer),
             **kwargs)
         
-class Residual2D(_Residual):
-    """2D residual layer (e.g. spatial convolution over images).
-    `Residual2D` implements the operation:
-        `output = Conv2D(input) + Conv2D(Actv(Norm( Conv2D(Actv(Norm( ... ))) )))`
+class Inception2D(_Inception):
+    """2D inception layer (e.g. spatial convolution over images).
+    `Inception2D` implements the operation:
+        `output = sum (i=0~D) ConvBranch2D(D, input)`
+    where `ConvBranch2D` means D-1 times 2D convolutional layers.
+    To be specific, when D=0, this branch is low-pass filtered by pooling layer.
     In some cases, the first term may not need to be convoluted.
-    This residual block supports users to use any depth. If depth=3, it is the same
-    as bottleneck design. Deeper block means more convolutional layers.
-    According to relative papers, the structure of this block has been optimized.
-    Arguments for residual block:
-        depth: An integer, indicates the repentance of convolutional blocks.
+    The implementation here is not exactly the same as original paper. The main 
+    difference includes
+        1. The main structure is only borrowed from inception-A block.
+        2. The down sampling layer is also implemented in this class 
+           (if set strides)
+        3. We do not invoke the low-rank decomposition for the conv. kernels.
+        4. We borrowing the idea of residual-v2 block and change the order of some
+           layers. 
+    Arguments for inception block:
+        depth: An integer, indicates the number of network branches.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).
         lfilters: Integer, the dimensionality of the lattent space (i.e. the number
@@ -628,7 +727,7 @@ class Residual2D(_Residual):
                activity_config=None,
                activity_regularizer=None,
                **kwargs):
-        super(Residual2D, self).__init__(
+        super(Inception2D, self).__init__(
             rank=2, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
             lfilters=lfilters,
@@ -651,16 +750,23 @@ class Residual2D(_Residual):
             activity_regularizer=regularizers.get(activity_regularizer),
             **kwargs)
         
-class Residual3D(_Residual):
-    """3D residual layer (e.g. spatial convolution over volumes).
-    `Residual3D` implements the operation:
-        `output = Conv3D(input) + Conv3D(Actv(Norm( Conv3D(Actv(Norm( ... ))) )))`
+class Inception3D(_Inception):
+    """3D inception layer (e.g. spatial convolution over volumes).
+    `Inception3D` implements the operation:
+        `output = sum (i=0~D) ConvBranch3D(D, input)`
+    where `ConvBranch3D` means D-1 times 3D convolutional layers.
+    To be specific, when D=0, this branch is low-pass filtered by pooling layer.
     In some cases, the first term may not need to be convoluted.
-    This residual block supports users to use any depth. If depth=3, it is the same
-    as bottleneck design. Deeper block means more convolutional layers.
-    According to relative papers, the structure of this block has been optimized.
-    Arguments for residual block:
-        depth: An integer, indicates the repentance of convolutional blocks.
+    The implementation here is not exactly the same as original paper. The main 
+    difference includes
+        1. The main structure is only borrowed from inception-A block.
+        2. The down sampling layer is also implemented in this class 
+           (if set strides)
+        3. We do not invoke the low-rank decomposition for the conv. kernels.
+        4. We borrowing the idea of residual-v2 block and change the order of some
+           layers. 
+    Arguments for inception block:
+        depth: An integer, indicates the number of network branches.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).
         lfilters: Integer, the dimensionality of the lattent space (i.e. the number
@@ -768,7 +874,7 @@ class Residual3D(_Residual):
                activity_config=None,
                activity_regularizer=None,
                **kwargs):
-        super(Residual3D, self).__init__(
+        super(Inception3D, self).__init__(
             rank=3, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
             lfilters=lfilters,
@@ -791,23 +897,17 @@ class Residual3D(_Residual):
             activity_regularizer=regularizers.get(activity_regularizer),
             **kwargs)
             
-class _ResidualTranspose(Layer):
+class _InceptionTranspose(Layer):
     """Modern transposed residual layer (sometimes called Residual deconvolution).
-    Abstract nD residual layer (private, used as implementation base).
-    `_ResidualTranspose` implements the operation:
-        `output = DeConv(input) + DeConv(Actv(Norm( DeConv(Actv(Norm( ... ))) )))`
+    Abstract nD inception transposed layer (private, used as implementation base).
+    `_InceptionTranspose` implements the operation:
+        `output = sum (i=0~D) ConvTransposeBranch(D, input)`
+    where `ConvTransposeBranch` means D-1 times transposed convolutional layers.
+    To be specific, when D=0, this branch is low-pass filtered by pooling layer.
     In some cases, the first term may not need to be convoluted.
-    Such a structure is mainly brought from:
-        Bottleneck structure: Deep Residual Learning for Image Recognition
-            https://arxiv.org/abs/1512.03385
-        Sublayer order: Identity Mappings in Deep Residual Networks
-            https://arxiv.org/abs/1603.05027v3
-    Experiments show that the aforementioned implementation may be the optimal
-    design for residual block. We popularize the residual block into the case that
-    enables any depth.
     Arguments for residual block:
         rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
-        depth: An integer, indicates the repentance of convolutional blocks.
+        depth: An integer, indicates the number of network branches.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).
         lfilters: Integer, the dimensionality of the lattent space (i.e. the number
@@ -923,11 +1023,15 @@ class _ResidualTranspose(Layer):
         if 'input_shape' not in kwargs and 'input_dim' in kwargs:
           kwargs['input_shape'] = (kwargs.pop('input_dim'),)
 
-        super(_ResidualTranspose, self).__init__(trainable=trainable, name=name, **kwargs)
+        super(_InceptionTranspose, self).__init__(trainable=trainable, name=name, **kwargs)
         # Inherit from keras.layers._Conv
         self.rank = rank
-        self.depth = depth - 2
-        self.ofilters = ofilters
+        self.depth = depth
+        if depth < 1:
+            raise ValueError('The depth of the residual block should be >= 1.')
+        if ofilters % (depth+1) != 0:
+            raise ValueError('The output filter number should be the multiple of (depth+1), i.e. N * {0}'.format(depth+1))
+        self.ofilters = ofilters // (self.depth + 1)
         self.lfilters = lfilters
         if self.depth < 1:
             raise ValueError('The depth of the residual block should be >= 3.')
@@ -1065,11 +1169,151 @@ class _ResidualTranspose(Layer):
                 self.layer_padding = None
         else:
             raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
-        if self.ofilters == self.channelIn:
-            self.layer_branch_left = None
-            left_shape = next_shape
+        # Consider the branch zero
+        if not _check_dl_func(self.strides):
+            if self.rank == 1:
+                self.layer_branch_zero = MaxPooling1D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
+            elif self.rank == 2:
+                self.layer_branch_zero = MaxPooling2D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
+            elif self.rank == 3:
+                self.layer_branch_zero = MaxPooling3D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
+            else:
+                raise ValueError('Rank of the inception should be 1, 2 or 3.')
         else:
-            self.layer_branch_left = _AConv(rank = self.rank,
+            if self.rank == 1:
+                self.layer_branch_zero = AveragePooling1D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
+            elif self.rank == 2:
+                self.layer_branch_zero = AveragePooling2D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
+            elif self.rank == 3:
+                self.layer_branch_zero = AveragePooling3D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
+            else:
+                raise ValueError('Rank of the inception should be 1, 2 or 3.')
+        self.layer_branch_zero.build(next_shape)
+        zero_shape = self.layer_branch_zero.compute_output_shape(next_shape)
+        # If channel does not match, use linear conv.
+        if self.channelIn != self.ofilters:
+            self.layer_branch_zero_map = _AConv(rank = self.rank,
+                        filters = self.ofilters,
+                        kernel_size = 1,
+                        strides = 1,
+                        padding = 'same',
+                        data_format = self.data_format,
+                        dilation_rate = 1,
+                        kernel_initializer=self.kernel_initializer,
+                        kernel_regularizer=self.kernel_regularizer,
+                        kernel_constraint=self.kernel_constraint,
+                        normalization=self.normalization,
+                        beta_initializer=self.beta_initializer,
+                        gamma_initializer=self.gamma_initializer,
+                        beta_regularizer=self.beta_regularizer,
+                        gamma_regularizer=self.gamma_regularizer,
+                        beta_constraint=self.beta_constraint,
+                        gamma_constraint=self.gamma_constraint,
+                        groups=self.groups,
+                        activation=None,
+                        activity_config=None,
+                        activity_regularizer=None,
+                        _high_activation=None,
+                        trainable=self.trainable)
+            self.layer_branch_zero_map.build(zero_shape)
+            if compat.COMPATIBLE_MODE: # for compatibility
+                self._trainable_weights.extend(self.layer_branch_zero_map._trainable_weights)
+            zero_shape = self.layer_branch_zero_map.compute_output_shape(zero_shape)
+        else:
+            self.layer_branch_zero_map = None
+        # Consider the branch one
+        if self.channelIn != self.ofilters:
+            self.layer_branch_one = _AConv(rank = self.rank,
+                        filters = self.ofilters,
+                        kernel_size = 1,
+                        strides = 1,
+                        padding = 'same',
+                        data_format = self.data_format,
+                        dilation_rate = 1,
+                        kernel_initializer=self.kernel_initializer,
+                        kernel_regularizer=self.kernel_regularizer,
+                        kernel_constraint=self.kernel_constraint,
+                        normalization=self.normalization,
+                        beta_initializer=self.beta_initializer,
+                        gamma_initializer=self.gamma_initializer,
+                        beta_regularizer=self.beta_regularizer,
+                        gamma_regularizer=self.gamma_regularizer,
+                        beta_constraint=self.beta_constraint,
+                        gamma_constraint=self.gamma_constraint,
+                        groups=self.groups,
+                        activation=None,
+                        activity_config=None,
+                        activity_regularizer=None,
+                        _high_activation=None,
+                        trainable=self.trainable)
+            self.layer_branch_one.build(next_shape)
+            if compat.COMPATIBLE_MODE: # for compatibility
+                self._trainable_weights.extend(self.layer_branch_one._trainable_weights)
+            one_shape = self.layer_branch_one.compute_output_shape(next_shape)
+        else:
+            self.layer_branch_one = None
+            one_shape = next_shape
+        # Consider branches with depth
+        depth_shape_list = []
+        for D in range(self.depth-1):
+            layer_middle_first = NACUnit(rank = self.rank,
+                          filters = self.lfilters,
+                          kernel_size = 1,
+                          strides = 1,
+                          padding = 'same',
+                          data_format = self.data_format,
+                          dilation_rate = 1,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          gamma_initializer=self.gamma_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          gamma_regularizer=self.gamma_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          gamma_constraint=self.gamma_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
+                          trainable=self.trainable)
+            layer_middle_first.build(next_shape)
+            if compat.COMPATIBLE_MODE: # for compatibility
+                self._trainable_weights.extend(layer_middle_first._trainable_weights)
+            branch_shape = layer_middle_first.compute_output_shape(next_shape)
+            setattr(self, 'layer_middle_D{0:02d}_00'.format(D+2), layer_middle_first)
+            for i in range(D):
+                layer_middle = NACUnit(rank = self.rank,
+                          filters = self.lfilters,
+                          kernel_size = self.kernel_size,
+                          strides = 1,
+                          padding = 'same',
+                          data_format = self.data_format,
+                          dilation_rate = self.dilation_rate,
+                          kernel_initializer=self.kernel_initializer,
+                          kernel_regularizer=self.kernel_regularizer,
+                          kernel_constraint=self.kernel_constraint,
+                          normalization=self.normalization,
+                          beta_initializer=self.beta_initializer,
+                          gamma_initializer=self.gamma_initializer,
+                          beta_regularizer=self.beta_regularizer,
+                          gamma_regularizer=self.gamma_regularizer,
+                          beta_constraint=self.beta_constraint,
+                          gamma_constraint=self.gamma_constraint,
+                          groups=self.groups,
+                          activation=self.activation,
+                          activity_config=self.activity_config,
+                          activity_regularizer=self.sub_activity_regularizer,
+                          _high_activation=self.high_activation,
+                          trainable=self.trainable)
+                layer_middle.build(branch_shape)
+                if compat.COMPATIBLE_MODE: # for compatibility
+                    self._trainable_weights.extend(layer_middle._trainable_weights)
+                branch_shape = layer_middle.compute_output_shape(branch_shape)
+                setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1), layer_middle)
+            layer_middle_last = NACUnit(rank = self.rank,
                           filters = self.ofilters,
                           kernel_size = self.kernel_size,
                           strides = 1,
@@ -1092,96 +1336,18 @@ class _ResidualTranspose(Layer):
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
-            self.layer_branch_left.build(next_shape)
+            layer_middle_last.build(branch_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
-            left_shape = self.layer_branch_left.compute_output_shape(next_shape)
-        self.layer_first = NACUnit(rank = self.rank,
-                          filters = self.lfilters,
-                          kernel_size = 1,
-                          strides = 1,
-                          padding = 'same',
-                          data_format = self.data_format,
-                          dilation_rate = 1,
-                          kernel_initializer=self.kernel_initializer,
-                          kernel_regularizer=self.kernel_regularizer,
-                          kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
-                          beta_initializer=self.beta_initializer,
-                          beta_regularizer=self.beta_regularizer,
-                          beta_constraint=self.beta_constraint,
-                          groups=self.groups,
-                          activation=self.activation,
-                          activity_config=self.activity_config,
-                          activity_regularizer=self.sub_activity_regularizer,
-                          _high_activation=self.high_activation,
-                          trainable=self.trainable)
-        self.layer_first.build(next_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_first._trainable_weights)
-        right_shape = self.layer_first.compute_output_shape(next_shape)
-        # Repeat blocks by depth number
-        for i in range(self.depth):
-            if i == 0:
-                sub_dilation_rate = self.dilation_rate
-            else:
-                sub_dilation_rate = 1
-            layer_middle = NACUnit(rank = self.rank,
-                          filters = self.lfilters,
-                          kernel_size = self.kernel_size,
-                          strides = 1,
-                          padding = 'same',
-                          data_format = self.data_format,
-                          dilation_rate = sub_dilation_rate,
-                          kernel_initializer=self.kernel_initializer,
-                          kernel_regularizer=self.kernel_regularizer,
-                          kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
-                          beta_initializer=self.beta_initializer,
-                          gamma_initializer=self.gamma_initializer,
-                          beta_regularizer=self.beta_regularizer,
-                          gamma_regularizer=self.gamma_regularizer,
-                          beta_constraint=self.beta_constraint,
-                          gamma_constraint=self.gamma_constraint,
-                          groups=self.groups,
-                          activation=self.activation,
-                          activity_config=self.activity_config,
-                          activity_regularizer=self.sub_activity_regularizer,
-                          _high_activation=self.high_activation,
-                          trainable=self.trainable)
-            layer_middle.build(right_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle._trainable_weights)
-            right_shape = layer_middle.compute_output_shape(right_shape)
-            setattr(self, 'layer_middle_{0:02d}'.format(i), layer_middle)
-        self.layer_last = NACUnit(rank = self.rank,
-                          filters = self.ofilters,
-                          kernel_size = 1,
-                          strides = 1,
-                          padding = 'same',
-                          data_format = self.data_format,
-                          dilation_rate = 1,
-                          kernel_initializer=self.kernel_initializer,
-                          kernel_regularizer=self.kernel_regularizer,
-                          kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
-                          beta_initializer=self.beta_initializer,
-                          beta_regularizer=self.beta_regularizer,
-                          beta_constraint=self.beta_constraint,
-                          groups=self.groups,
-                          activation=self.activation,
-                          activity_config=self.activity_config,
-                          activity_regularizer=self.sub_activity_regularizer,
-                          _high_activation=self.high_activation,
-                          _use_bias=True,
-                          trainable=self.trainable)
-        self.layer_last.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_last._trainable_weights)
-        right_shape = self.layer_last.compute_output_shape(right_shape)
-        self.layer_merge = Add()
-        self.layer_merge.build([left_shape, right_shape])
-        next_shape = self.layer_merge.compute_output_shape([left_shape, right_shape])
+                self._trainable_weights.extend(layer_middle_last._trainable_weights)
+            branch_shape = layer_middle_last.compute_output_shape(branch_shape)
+            setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1), layer_middle_last)
+            depth_shape_list.append(branch_shape)
+        if self.data_format == 'channels_first':
+            self.layer_merge = Concatenate(axis=1)
+        else:
+            self.layer_merge = Concatenate()
+        self.layer_merge.build([zero_shape, one_shape, *depth_shape_list])
+        next_shape = self.layer_merge.compute_output_shape([zero_shape, one_shape, *depth_shape_list])
         if self.output_cropping is not None:
             if self.rank == 1:
                 self.layer_cropping = Cropping1D(cropping=self.output_cropping)[0]
@@ -1195,22 +1361,30 @@ class _ResidualTranspose(Layer):
             next_shape = self.layer_cropping.compute_output_shape(next_shape)
         else:
             self.layer_cropping = None
-        super(_ResidualTranspose, self).build(input_shape)
+        super(_InceptionTranspose, self).build(next_shape)
 
     def call(self, inputs):
         outputs = self.layer_uppool(inputs)
         if self.layer_padding is not None:
             outputs = self.layer_padding(outputs)
-        if self.layer_branch_left is not None:
-            branch_left = self.layer_branch_left(outputs)
+        branch_zero = self.layer_branch_zero(outputs)
+        if self.layer_branch_zero_map is not None:
+            branch_zero = self.layer_branch_zero_map(branch_zero)
+        if self.layer_branch_one is not None:
+            branch_one = self.layer_branch_one(outputs)
         else:
-            branch_left = outputs
-        branch_right = self.layer_first(outputs)
-        for i in range(self.depth):
-            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i))
-            branch_right = layer_middle(branch_right)
-        branch_right = self.layer_last(branch_right)
-        outputs = self.layer_merge([branch_left, branch_right])
+            branch_one = outputs
+        branch_middle_list = []
+        for D in range(self.depth-1):
+            layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
+            branch_middle = layer_middle_first(outputs)
+            for i in range(D):
+                layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
+                branch_middle = layer_middle(branch_middle)
+            layer_middle_last = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1))
+            branch_middle = layer_middle_last(branch_middle)
+            branch_middle_list.append(branch_middle)
+        outputs = self.layer_merge([branch_zero, branch_one, *branch_middle_list])
         if self.layer_cropping is not None:
             outputs = self.layer_cropping(outputs)
         return outputs
@@ -1221,16 +1395,24 @@ class _ResidualTranspose(Layer):
         next_shape = self.layer_uppool.compute_output_shape(input_shape)
         if self.layer_padding is not None:
             next_shape = self.layer_padding.compute_output_shape(next_shape)
-        if self.layer_branch_left is not None:
-            branch_left_shape = self.layer_branch_left.compute_output_shape(next_shape)
+        branch_zero_shape = self.layer_branch_zero.compute_output_shape(next_shape)
+        if self.layer_branch_zero_map is not None:
+            branch_zero_shape = self.layer_branch_zero_map.compute_output_shape(branch_zero_shape)
+        if self.layer_branch_one is not None:
+            branch_one_shape = self.layer_branch_one.compute_output_shape(next_shape)
         else:
-            branch_left_shape = next_shape
-        branch_right_shape = self.layer_first.compute_output_shape(next_shape)
-        for i in range(self.depth):
-            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i))
-            branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
-        branch_right_shape = self.layer_last.compute_output_shape(branch_right_shape)
-        next_shape = self.layer_merge.compute_output_shape([branch_left_shape, branch_right_shape])
+            branch_one_shape = next_shape
+        branch_middle_shape_list = []
+        for D in range(self.depth-1):
+            layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
+            branch_middle_shape = layer_middle_first.compute_output_shape(next_shape)
+            for i in range(D):
+                layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
+                branch_middle_shape = layer_middle.compute_output_shape(branch_middle_shape)
+            layer_middle_last = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1))
+            branch_middle_shape = layer_middle_last.compute_output_shape(branch_middle_shape)
+            branch_middle_shape_list.append(branch_middle_shape)
+        next_shape = self.layer_merge.compute_output_shape([branch_zero_shape, branch_one_shape, *branch_middle_shape_list])
         if self.layer_cropping is not None:
             next_shape = self.layer_cropping.compute_output_shape(next_shape)
         next_shape = self.layer_conv.compute_output_shape(next_shape)
@@ -1238,8 +1420,8 @@ class _ResidualTranspose(Layer):
     
     def get_config(self):
         config = {
-            'depth': self.depth + 2,
-            'ofilters': self.ofilters,
+            'depth': self.depth,
+            'ofilters': self.ofilters * (self.depth + 1),
             'lfilters': self.lfilters,
             'kernel_size': self.kernel_size,
             'strides': self.strides,
@@ -1267,20 +1449,18 @@ class _ResidualTranspose(Layer):
         base_config = super(_ResidualTranspose, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
         
-class Residual1DTranspose(_ResidualTranspose):
+class Inception1DTranspose(_InceptionTranspose):
     """Modern transposed residual layer (sometimes called Residual deconvolution).
-    `Residual1DTranspose` implements the operation:
-        `output = Conv1D(Upsamp(input)) + Conv1D(Actv(Norm( Conv1D(Actv(Norm( ... ))) )))`
+    `Inception1DTranspose` implements the operation:
+        `output = sum (i=0~D) Conv1DTransposeBranch(D, input)`
+    where `Conv1DTransposeBranch` means D-1 times 1D transposed convolutional layers.
+    To be specific, when D=0, this branch is low-pass filtered by pooling layer.
     In some cases, the first term may not need to be convoluted.
-    This residual block supports users to use any depth. If depth=3, it is the same
-    as bottleneck design. Deeper block means more convolutional layers.
-    According to relative papers, the structure of this block has been optimized.
     The upsampling is performed on the input layer. Previous works prove that the
     "transposed convolution" could be viewed as upsampling + plain convolution. Here
     we adopt such a technique to realize this upsampling architecture.
-    Arguments for residual block:
-        rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
-        depth: An integer, indicates the repentance of convolutional blocks.
+    Arguments for inception block:
+        depth: An integer, indicates the number of network branches.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).
         lfilters: Integer, the dimensionality of the lattent space (i.e. the number
@@ -1389,7 +1569,7 @@ class Residual1DTranspose(_ResidualTranspose):
                  activity_config=None,
                  activity_regularizer=None,
                  **kwargs):
-        super(Residual1DTranspose, self).__init__(
+        super(Inception1DTranspose, self).__init__(
             rank=1, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
             lfilters=lfilters,
@@ -1415,20 +1595,18 @@ class Residual1DTranspose(_ResidualTranspose):
             activity_regularizer=regularizers.get(activity_regularizer),
             **kwargs)
             
-class Residual2DTranspose(_ResidualTranspose):
+class Inception2DTranspose(_InceptionTranspose):
     """Modern transposed residual layer (sometimes called Residual deconvolution).
-    `Residual2DTranspose` implements the operation:
-        `output = Conv2D(Upsamp(input)) + Conv2D(Actv(Norm( Conv2D(Actv(Norm( ... ))) )))`
+    `Inception2DTranspose` implements the operation:
+        `output = sum (i=0~D) Conv2DTransposeBranch(D, input)`
+    where `Conv2DTransposeBranch` means D-1 times 2D transposed convolutional layers.
+    To be specific, when D=0, this branch is low-pass filtered by pooling layer.
     In some cases, the first term may not need to be convoluted.
-    This residual block supports users to use any depth. If depth=3, it is the same
-    as bottleneck design. Deeper block means more convolutional layers.
-    According to relative papers, the structure of this block has been optimized.
     The upsampling is performed on the input layer. Previous works prove that the
     "transposed convolution" could be viewed as upsampling + plain convolution. Here
     we adopt such a technique to realize this upsampling architecture.
-    Arguments for residual block:
-        rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
-        depth: An integer, indicates the repentance of convolutional blocks.
+    Arguments for inception block:
+        depth: An integer, indicates the number of network branches.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).
         lfilters: Integer, the dimensionality of the lattent space (i.e. the number
@@ -1563,7 +1741,7 @@ class Residual2DTranspose(_ResidualTranspose):
                  activity_config=None,
                  activity_regularizer=None,
                  **kwargs):
-        super(Residual2DTranspose, self).__init__(
+        super(Inception2DTranspose, self).__init__(
             rank=2, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
             lfilters=lfilters,
@@ -1589,20 +1767,18 @@ class Residual2DTranspose(_ResidualTranspose):
             activity_regularizer=regularizers.get(activity_regularizer),
             **kwargs)
             
-class Residual3DTranspose(_ResidualTranspose):
+class Inception3DTranspose(_InceptionTranspose):
     """Modern transposed residual layer (sometimes called Residual deconvolution).
-    `Residual3DTranspose` implements the operation:
-        `output = Conv3D(Upsamp(input)) + Conv3D(Actv(Norm( Conv3D(Actv(Norm( ... ))) )))`
+    `Inception3DTranspose` implements the operation:
+        `output = sum (i=0~D) Conv3DTransposeBranch(D, input)`
+    where `Conv3DTransposeBranch` means D-1 times 3D transposed convolutional layers.
+    To be specific, when D=0, this branch is low-pass filtered by pooling layer.
     In some cases, the first term may not need to be convoluted.
-    This residual block supports users to use any depth. If depth=3, it is the same
-    as bottleneck design. Deeper block means more convolutional layers.
-    According to relative papers, the structure of this block has been optimized.
     The upsampling is performed on the input layer. Previous works prove that the
     "transposed convolution" could be viewed as upsampling + plain convolution. Here
     we adopt such a technique to realize this upsampling architecture.
-    Arguments for residual block:
-        rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
-        depth: An integer, indicates the repentance of convolutional blocks.
+    Arguments for inception block:
+        depth: An integer, indicates the number of network branches.
         ofilters: Integer, the dimensionality of the output space (i.e. the number
             of filters of output).
         lfilters: Integer, the dimensionality of the lattent space (i.e. the number
@@ -1740,7 +1916,7 @@ class Residual3DTranspose(_ResidualTranspose):
                  activity_config=None,
                  activity_regularizer=None,
                  **kwargs):
-        super(Residual3DTranspose, self).__init__(
+        super(Inception3DTranspose, self).__init__(
             rank=3, depth=depth, ofilters=ofilters,
             kernel_size=kernel_size,
             lfilters=lfilters,

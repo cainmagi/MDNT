@@ -118,6 +118,13 @@ if __name__ == '__main__':
         Seed of the random generaotr. If none, do not set random seed.
         '''
     )
+
+    parser.add_argument(
+        '-gn', '--gpuNumber', default=-1, type=int, metavar='int',
+        help='''\
+        The number of used GPU. If set -1, all GPUs would be visible.
+        '''
+    )
     
     args = parser.parse_args()
     def setSeed(seed):
@@ -126,6 +133,8 @@ if __name__ == '__main__':
         tf.set_random_seed(seed+1234)
     if args.seed is not None: # Set seed for reproductable results
         setSeed(args.seed)
+    if args.gpuNumber != -1:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpuNumber)
 
     def draw_quiver(X, Y, U, V, label=r''):
         U.resize(X.shape)
