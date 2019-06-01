@@ -231,10 +231,12 @@ class _Residual(Layer):
         self.channelIn = input_shape.as_list()[-1]
         if self.lfilters is None:
             self.lfilters = self.channelIn
+        last_use_bias = True
         if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
             self.layer_branch_left = None
             left_shape = input_shape
         else:
+            last_use_bias = False
             self.layer_branch_left = _AConv(rank = self.rank,
                           filters = self.ofilters,
                           kernel_size = 1,
@@ -345,7 +347,7 @@ class _Residual(Layer):
                           activity_config=self.activity_config,
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
-                          _use_bias=True,
+                          _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_last.build(right_shape)
         if compat.COMPATIBLE_MODE: # for compatibility
@@ -1071,10 +1073,12 @@ class _ResidualTranspose(Layer):
                 self.layer_padding = None
         else:
             raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
+        last_use_bias = True
         if self.ofilters == self.channelIn:
             self.layer_branch_left = None
             left_shape = next_shape
         else:
+            last_use_bias = False
             self.layer_branch_left = _AConv(rank = self.rank,
                           filters = self.ofilters,
                           kernel_size = 1,
@@ -1179,7 +1183,7 @@ class _ResidualTranspose(Layer):
                           activity_config=self.activity_config,
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
-                          _use_bias=True,
+                          _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_last.build(right_shape)
         if compat.COMPATIBLE_MODE: # for compatibility
