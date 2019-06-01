@@ -1446,7 +1446,7 @@ class _InceptionTranspose(Layer):
             'activity_regularizer': regularizers.serialize(self.activity_regularizer),
             '_high_activation': self.high_activation
         }
-        base_config = super(_ResidualTranspose, self).get_config()
+        base_config = super(_InceptionTranspose, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
         
 class Inception1DTranspose(_InceptionTranspose):
