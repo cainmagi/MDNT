@@ -1,42 +1,36 @@
 '''
 ################################################################
-# Layers - Residual-v2 blocks
+# Layers - Inception-v4 blocks
 # @ Modern Deep Network Toolkits for Tensorflow-Keras
 # Yuchen Jin @ cainmagi@gmail.com
 # Requirements: (Pay attention to version)
 #   python 3.6+
 #   tensorflow r1.13+
-# Residual blocks and their deconvolutional versions.
-#
-# The first paper about residual block could be referred here:
-# Bottleneck structure: Deep Residual Learning for Image 
-# Recognition
-#   https://arxiv.org/abs/1512.03385
-# In this paper, the author proposes two structures for residual
-# learning. The first one is one+"two conv." scheme, the other
-# is "bottle neck" structure.
-# In this module, we would implement the bottle neck structure
-# and popularize it into deeper case. For example, a N+2 depth
-# bottle neck residual block could be represented as:
-#   Conv x1 -> Conv xM -> Conv xM -> ... -> Conv x1
-#              \---- N Conv ----/
-# The stride should be implemented on the first Conv and the 
-# channel change should be implemented on the last Conv.
-#
-# The author also proposes a revised version after involving
-# the batch normalization scheme. The convolutional layer
-# inside the residual block should be implemented as `Norm ->`
-# `Actv -> Conv` rather than `Conv -> Norm -> Actv`
-# according such a paper:
-# Sublayer order: Identity Mappings in Deep Residual Networks
-#   https://arxiv.org/abs/1603.05027v3
-# In this module, the order of the sub-layers of modern conv.
-# layers has been modified according to the residual-v2 theory.
-# Version: 0.20 # 2019/5/31
-# Comments:
-#   Finish this submodule and fix the bugs caused by parameter
-#   searching scheme.
-# Version: 0.10 # 2019/3/23
+# Inception blocks and their deconvolutional versions.
+# The inception block is modified from the basic unit of Google-
+# LeNet. Compared to the residual block, it is more concentrated
+# on the low-pass features of the input layer. Hence, in some 
+# applications where the network serves as the low-pass filter,
+# the inception block should be more effective.
+# As mentioned in title, inception block has been modified for
+# several times. The newest version is v4. The theory could be
+# referred here:
+# Inception-v4, Inception-ResNet and the Impact of Residual 
+# Connections on Learning
+#   https://arxiv.org/abs/1602.07261
+# In this module, we would implement the inception-v4 block and
+# popularize it into more generic cases. The abstract structure
+# of this block is:
+#   -> Average Pool -> Conv x1              -> \
+#   -> Conv x1                              -> |
+#   -> Conv x1 -> Conv xM                   -> |-Cup
+#   -> Conv x1 -> Conv xM -> Conv xM        -> |
+#   -> Conv x1 -> Conv xM -> Conv xM -> ... -> /
+# Inception-v4 also has residual structure. The macro architec-
+# ture of such a scheme is as
+#   Input + "Inception-v4 plain block"
+# We would also implement the InceptRes-v4 in this module.
+# Version: 0.10 # 2019/5/31
 # Comments:
 #   Create this submodule.
 ################################################################
@@ -237,7 +231,7 @@ class _Residual(Layer):
         else:
             self.layer_branch_left = _AConv(rank = self.rank,
                           filters = self.ofilters,
-                          kernel_size = 1,
+                          kernel_size = self.kernel_size,
                           strides = self.strides,
                           padding = 'same',
                           data_format = self.data_format,
@@ -1077,7 +1071,7 @@ class _ResidualTranspose(Layer):
         else:
             self.layer_branch_left = _AConv(rank = self.rank,
                           filters = self.ofilters,
-                          kernel_size = 1,
+                          kernel_size = self.kernel_size,
                           strides = 1,
                           padding = 'same',
                           data_format = self.data_format,
