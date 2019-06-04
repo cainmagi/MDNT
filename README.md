@@ -47,6 +47,10 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 # Update records
 
+## 0.38 @ 06/04/2019
+
+Finish `Inceptres1D`, `Inceptres2D`, `Inceptres3D`, `Inceptres1DTranspose`,  `Inceptres2DTranspose`, `Inceptres3DTranspose` in `.layers`.
+
 ## 0.36 @ 06/01/2019
 
 Finish `Inception1D`, `Inception2D`, `Inception3D`, `Inception1DTranspose`,  `Inception2DTranspose`, `Inception3DTranspose` in `.layers`.

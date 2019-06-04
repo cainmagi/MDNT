@@ -800,10 +800,10 @@ class Residual3D(_Residual):
             **kwargs)
             
 class _ResidualTranspose(Layer):
-    """Modern transposed residual layer (sometimes called Residual deconvolution).
+    """Modern transposed residual layer (sometimes called residual deconvolution).
     Abstract nD residual layer (private, used as implementation base).
     `_ResidualTranspose` implements the operation:
-        `output = DeConv(input) + DeConv(Actv(Norm( DeConv(Actv(Norm( ... ))) )))`
+        `output = Conv(Upsamp(input)) + onv(Actv(Norm( conv(Actv(Norm( ... ))) )))`
     In some cases, the first term may not need to be convoluted.
     Such a structure is mainly brought from:
         Bottleneck structure: Deep Residual Learning for Image Recognition
@@ -1278,7 +1278,7 @@ class _ResidualTranspose(Layer):
         return dict(list(base_config.items()) + list(config.items()))
         
 class Residual1DTranspose(_ResidualTranspose):
-    """Modern transposed residual layer (sometimes called Residual deconvolution).
+    """Modern transposed residual layer (sometimes called residual deconvolution).
     `Residual1DTranspose` implements the operation:
         `output = Conv1D(Upsamp(input)) + Conv1D(Actv(Norm( Conv1D(Actv(Norm( ... ))) )))`
     In some cases, the first term may not need to be convoluted.
@@ -1425,7 +1425,7 @@ class Residual1DTranspose(_ResidualTranspose):
             **kwargs)
             
 class Residual2DTranspose(_ResidualTranspose):
-    """Modern transposed residual layer (sometimes called Residual deconvolution).
+    """Modern transposed residual layer (sometimes called residual deconvolution).
     `Residual2DTranspose` implements the operation:
         `output = Conv2D(Upsamp(input)) + Conv2D(Actv(Norm( Conv2D(Actv(Norm( ... ))) )))`
     In some cases, the first term may not need to be convoluted.
@@ -1598,7 +1598,7 @@ class Residual2DTranspose(_ResidualTranspose):
             **kwargs)
             
 class Residual3DTranspose(_ResidualTranspose):
-    """Modern transposed residual layer (sometimes called Residual deconvolution).
+    """Modern transposed residual layer (sometimes called residual deconvolution).
     `Residual3DTranspose` implements the operation:
         `output = Conv3D(Upsamp(input)) + Conv3D(Actv(Norm( Conv3D(Actv(Norm( ... ))) )))`
     In some cases, the first term may not need to be convoluted.
