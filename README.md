@@ -20,8 +20,9 @@ Now we have such progress on the semi-product:
     - [x] Modern transposed convolutional layers.
     - [ ] Tied and modern transposed convolutional layers for the symmetric autoencoder.
     - [x] Residual layers (or blocks) and their transposed versions.
+    - [ ] ResNeXt layers (or blocks) and their transposed versions.
     - [x] Inception-v4 layers (or blocks) and their transposed versions.
-    - [ ] InceptionRes-v2 layers (or blocks) and their transposed versions.
+    - [x] InceptionRes-v2 layers (or blocks) and their transposed versions.
     - [ ] InceptionPlus layers (or blocks) and their transposed versions.
     - [x] External interface for using generic python function.
 - [ ] data:
@@ -49,7 +50,8 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## 0.38 @ 06/04/2019
 
-Finish `Inceptres1D`, `Inceptres2D`, `Inceptres3D`, `Inceptres1DTranspose`,  `Inceptres2DTranspose`, `Inceptres3DTranspose` in `.layers`.
+1. Finish `Inceptres1D`, `Inceptres2D`, `Inceptres3D`, `Inceptres1DTranspose`,  `Inceptres2DTranspose`, `Inceptres3DTranspose` in `.layers`.
+2. Fix some bugs and revise docstrings for `.layers.residual` and `.layers.inception`.
 
 ## 0.36 @ 06/01/2019
 
