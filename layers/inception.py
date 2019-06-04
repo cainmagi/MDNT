@@ -30,6 +30,9 @@
 # ture of such a scheme is as
 #   Input + "Inception-v4 plain block"
 # We have also implemented the InceptRes-v4 in this module.
+# Version: 0.32 # 2019/6/4
+# Comments:
+#   Improve the quality of the codes.
 # Version: 0.30 # 2019/6/4
 # Comments:
 #   Finish the Inceptres layers.
@@ -2273,7 +2276,7 @@ class _Inceptres(Layer):
                 self._trainable_weights.extend(layer_middle_first._trainable_weights)
             branch_shape = layer_middle_first.compute_output_shape(input_shape)
             setattr(self, 'layer_middle_D{0:02d}_00'.format(D+2), layer_middle_first)
-            for i in range(D):
+            for i in range(D+1):
                 layer_middle = NACUnit(rank = self.rank,
                           filters = self.lfilters,
                           kernel_size = self.kernel_size,
@@ -2302,34 +2305,6 @@ class _Inceptres(Layer):
                     self._trainable_weights.extend(layer_middle._trainable_weights)
                 branch_shape = layer_middle.compute_output_shape(branch_shape)
                 setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1), layer_middle)
-            layer_middle_last = NACUnit(rank = self.rank,
-                          filters = self.lfilters,
-                          kernel_size = self.kernel_size,
-                          strides = 1,
-                          padding = 'same',
-                          data_format = self.data_format,
-                          dilation_rate = self.dilation_rate,
-                          kernel_initializer=self.kernel_initializer,
-                          kernel_regularizer=self.kernel_regularizer,
-                          kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
-                          beta_initializer=self.beta_initializer,
-                          gamma_initializer=self.gamma_initializer,
-                          beta_regularizer=self.beta_regularizer,
-                          gamma_regularizer=self.gamma_regularizer,
-                          beta_constraint=self.beta_constraint,
-                          gamma_constraint=self.gamma_constraint,
-                          groups=self.groups,
-                          activation=self.activation,
-                          activity_config=self.activity_config,
-                          activity_regularizer=self.sub_activity_regularizer,
-                          _high_activation=self.high_activation,
-                          trainable=self.trainable)
-            layer_middle_last.build(branch_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle_last._trainable_weights)
-            branch_shape = layer_middle_last.compute_output_shape(branch_shape)
-            setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1), layer_middle_last)
             depth_shape_list.append(branch_shape)
         # Merge the right branch by concatnation.
         if self.data_format == 'channels_first':
@@ -2389,11 +2364,9 @@ class _Inceptres(Layer):
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
             branch_middle = layer_middle_first(inputs)
-            for i in range(D):
+            for i in range(D+1):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle = layer_middle(branch_middle)
-            layer_middle_last = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1))
-            branch_middle = layer_middle_last(branch_middle)
             branch_middle_list.append(branch_middle)
         branch_right = self.layer_branch_right([branch_zero, branch_one, *branch_middle_list])
         branch_right = self.layer_branch_right_map(branch_right)
@@ -2416,11 +2389,9 @@ class _Inceptres(Layer):
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
             branch_middle_shape = layer_middle_first.compute_output_shape(input_shape)
-            for i in range(D):
+            for i in range(D+1):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle_shape = layer_middle.compute_output_shape(branch_middle_shape)
-            layer_middle_last = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1))
-            branch_middle_shape = layer_middle_last.compute_output_shape(branch_middle_shape)
             branch_middle_shape_list.append(branch_middle_shape)
         branch_right_shape = self.layer_branch_right.compute_output_shape([branch_zero_shape, branch_one_shape, *branch_middle_shape_list])
         branch_right_shape = self.layer_branch_right_map.compute_output_shape(branch_right_shape)
@@ -3293,7 +3264,7 @@ class _InceptresTranspose(Layer):
                 self._trainable_weights.extend(layer_middle_first._trainable_weights)
             branch_shape = layer_middle_first.compute_output_shape(next_shape)
             setattr(self, 'layer_middle_D{0:02d}_00'.format(D+2), layer_middle_first)
-            for i in range(D):
+            for i in range(D+1):
                 layer_middle = NACUnit(rank = self.rank,
                           filters = self.lfilters,
                           kernel_size = self.kernel_size,
@@ -3322,34 +3293,6 @@ class _InceptresTranspose(Layer):
                     self._trainable_weights.extend(layer_middle._trainable_weights)
                 branch_shape = layer_middle.compute_output_shape(branch_shape)
                 setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1), layer_middle)
-            layer_middle_last = NACUnit(rank = self.rank,
-                          filters = self.lfilters,
-                          kernel_size = self.kernel_size,
-                          strides = 1,
-                          padding = 'same',
-                          data_format = self.data_format,
-                          dilation_rate = self.dilation_rate,
-                          kernel_initializer=self.kernel_initializer,
-                          kernel_regularizer=self.kernel_regularizer,
-                          kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
-                          beta_initializer=self.beta_initializer,
-                          gamma_initializer=self.gamma_initializer,
-                          beta_regularizer=self.beta_regularizer,
-                          gamma_regularizer=self.gamma_regularizer,
-                          beta_constraint=self.beta_constraint,
-                          gamma_constraint=self.gamma_constraint,
-                          groups=self.groups,
-                          activation=self.activation,
-                          activity_config=self.activity_config,
-                          activity_regularizer=self.sub_activity_regularizer,
-                          _high_activation=self.high_activation,
-                          trainable=self.trainable)
-            layer_middle_last.build(branch_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle_last._trainable_weights)
-            branch_shape = layer_middle_last.compute_output_shape(branch_shape)
-            setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1), layer_middle_last)
             depth_shape_list.append(branch_shape)
         # Merge the right branch by concatnation.
         if self.data_format == 'channels_first':
@@ -3426,11 +3369,9 @@ class _InceptresTranspose(Layer):
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
             branch_middle = layer_middle_first(outputs)
-            for i in range(D):
+            for i in range(D+1):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle = layer_middle(branch_middle)
-            layer_middle_last = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1))
-            branch_middle = layer_middle_last(branch_middle)
             branch_middle_list.append(branch_middle)
         branch_right = self.layer_branch_right([branch_zero, branch_one, *branch_middle_list])
         branch_right = self.layer_branch_right_map(branch_right)
@@ -3460,11 +3401,9 @@ class _InceptresTranspose(Layer):
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
             branch_middle_shape = layer_middle_first.compute_output_shape(next_shape)
-            for i in range(D):
+            for i in range(D+1):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle_shape = layer_middle.compute_output_shape(branch_middle_shape)
-            layer_middle_last = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1))
-            branch_middle_shape = layer_middle_last.compute_output_shape(branch_middle_shape)
             branch_middle_shape_list.append(branch_middle_shape)
         branch_right_shape = self.layer_branch_right.compute_output_shape([branch_zero_shape, branch_one_shape, *branch_middle_shape_list])
         branch_right_shape = self.layer_branch_right_map.compute_output_shape(branch_right_shape)
