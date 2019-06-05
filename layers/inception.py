@@ -248,7 +248,13 @@ class _Inception(Layer):
     def build(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
-        self.channelIn = input_shape.as_list()[-1]
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
+        self.channelIn = int(input_shape[channel_axis])
         if self.lfilters is None:
             self.lfilters = max( 1, self.channelIn // 2 )
         # Consider the branch zero
@@ -1103,7 +1109,13 @@ class _InceptionTranspose(Layer):
     def build(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
-        self.channelIn = input_shape.as_list()[-1]
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
+        self.channelIn = int(input_shape[channel_axis])
         if self.lfilters is None:
             self.lfilters = max( 1, self.channelIn // 2 )
         # If setting output_mshape, need to infer output_padding & output_cropping
@@ -2128,7 +2140,13 @@ class _Inceptres(Layer):
     def build(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
-        self.channelIn = input_shape.as_list()[-1]
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
+        self.channelIn = int(input_shape[channel_axis])
         if self.lfilters is None:
             self.lfilters = max( 1, self.channelIn // 2 )
         # Here we define the left branch
@@ -3038,7 +3056,13 @@ class _InceptresTranspose(Layer):
     def build(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
-        self.channelIn = input_shape.as_list()[-1]
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
+        self.channelIn = int(input_shape[channel_axis])
         if self.lfilters is None:
             self.lfilters = max( 1, self.channelIn // 2 )
         # If setting output_mshape, need to infer output_padding & output_cropping

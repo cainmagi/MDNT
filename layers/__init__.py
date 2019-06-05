@@ -18,7 +18,7 @@
 # Import sub-modules
 from .dense import DenseTied
 from .normalize import InstanceNormalization, GroupNormalization
-from .conv import AConv1D, AConv2D, AConv3D, AConv1DTranspose, AConv2DTranspose, AConv3DTranspose#, AConv1DTied, AConv2DTied, AConv3DTied
+from .conv import AConv1D, AConv2D, AConv3D, AConv1DTranspose, AConv2DTranspose, AConv3DTranspose, GroupConv1D, GroupConv2D, GroupConv3D#, AConv1DTied, AConv2DTied, AConv3DTied
 from .external import PyExternal
 from .residual import Residual1D, Residual1DTranspose, Residual2D, Residual2DTranspose, Residual3D, Residual3DTranspose, Resnext1D, Resnext1DTranspose, Resnext2D, Resnext2DTranspose, Resnext3D, Resnext3DTranspose
 from .inception import Inception1D, Inception2D, Inception3D, Inception1DTranspose, Inception2DTranspose, Inception3DTranspose, Inceptres1D, Inceptres2D, Inceptres3D, Inceptres1DTranspose, Inceptres2DTranspose, Inceptres3DTranspose
@@ -31,6 +31,9 @@ customObjects = {
     'AConv1D': AConv1D,
     'AConv2D': AConv2D,
     'AConv3D': AConv3D,
+    'GroupConv1D': GroupConv1D,
+    'GroupConv2D': GroupConv2D,
+    'GroupConv3D': GroupConv3D,
     'AConv1DTranspose': AConv1DTranspose,
     'AConv2DTranspose': AConv2DTranspose,
     'AConv3DTranspose': AConv3DTranspose,

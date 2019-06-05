@@ -14,6 +14,11 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.42 # 2019/6/5
+# Comments:
+# 1. Add GroupConv1D, GroupConv2D, GroupConv3D in .layers.
+# 2. Fix the bugs in channel detections for residual and
+#    inception layers.
 # Version: 0.40 # 2019/6/5
 # Comments:
 # 1. Finish Resnext1D, Resnext2D, Resnext3D,
@@ -72,7 +77,7 @@ from . import optimizers
 from . import layers
 from . import data
 
-__version__ = '0.40'
+__version__ = '0.42'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

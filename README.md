@@ -16,6 +16,7 @@ Now we have such progress on the semi-product:
 - [ ] layers:
     - [x] Tied dense layer for the symmetric autoencoder.
     - [x] Extened normalization layers.
+    - [x] Group convolutional layers.
     - [x] Modern convolutional layers.
     - [x] Modern transposed convolutional layers.
     - [ ] Tied and modern transposed convolutional layers for the symmetric autoencoder.
@@ -47,6 +48,11 @@ Now we have such progress on the semi-product:
 Check the branch [`demos`][brch-demos] to learn more details.
 
 # Update records
+
+## 0.42 @ 06/05/2019
+
+1. Finish `GroupConv1D`, `GroupConv2D`, `GroupConv3D` in `.layers`.
+2. Fix the bugs in channel detections for residual and inception layers.
 
 ## 0.40 @ 06/05/2019
 

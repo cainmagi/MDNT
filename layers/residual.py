@@ -248,7 +248,13 @@ class _Residual(Layer):
     def build(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
-        self.channelIn = input_shape.as_list()[-1]
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
+        self.channelIn = int(input_shape[channel_axis])
         if self.lfilters is None:
             self.lfilters = max( 1, self.channelIn // 2 )
         last_use_bias = True
@@ -1015,7 +1021,13 @@ class _ResidualTranspose(Layer):
     def build(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
-        self.channelIn = input_shape.as_list()[-1]
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
+        self.channelIn = int(input_shape[channel_axis])
         if self.lfilters is None:
             self.lfilters = max( 1, self.channelIn // 2 )
         # If setting output_mshape, need to infer output_padding & output_cropping
@@ -1948,7 +1960,13 @@ class _Resnext(Layer):
     def build(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
-        self.channelIn = input_shape.as_list()[-1]
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
+        self.channelIn = int(input_shape[channel_axis])
         if (self.lgroups is None) or (self.lfilters is None):
             wholeLfilters = self.channelIn
             if (self.lgroups is None) and (self.lfilters is None):
@@ -2754,7 +2772,13 @@ class _ResnextTranspose(Layer):
     def build(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
-        self.channelIn = input_shape.as_list()[-1]
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
+        self.channelIn = int(input_shape[channel_axis])
         if (self.lgroups is None) or (self.lfilters is None):
             wholeLfilters = self.channelIn
             if (self.lgroups is None) and (self.lfilters is None):

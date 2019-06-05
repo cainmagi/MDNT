@@ -25,6 +25,9 @@
 # Here we also implement some tied convolutional layers, note
 # that it is necessary to set name scope if using them in multi-
 # models.
+# Version: 0.4 # 2019/6/5
+# Comments:
+#   Add group convolutional layers (`GroupConv`).
 # Version: 0.35 # 2019/5/28
 # Comments:
 #   1. Change the order of Cropping layer for AConvTranspose.
@@ -61,6 +64,8 @@ from tensorflow.python.keras import regularizers
 from tensorflow.python.keras.utils import conv_utils
 from tensorflow.python.keras.engine.base_layer import Layer
 from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import nn
+from tensorflow.python.ops import nn_ops
 
 from tensorflow.keras.layers import BatchNormalization, LeakyReLU, PReLU
 from tensorflow.python.keras.layers.convolutional import Conv, Conv2DTranspose, Conv3DTranspose, UpSampling1D, UpSampling2D, UpSampling3D, ZeroPadding1D, ZeroPadding2D, ZeroPadding3D, Cropping1D, Cropping2D, Cropping3D
@@ -78,6 +83,595 @@ def _get_macro():
     return NEW_CONV_TRANSPOSE
 
 _check_dl_func = lambda a: all(ai==1 for ai in a)
+
+class _GroupConv(Layer):
+    """Abstract nD group convolution layer (private, used as implementation base).
+    This layer creates a convolution kernel that is convolved
+    (actually cross-correlated) with the layer input to produce a tensor of
+    outputs. If `use_bias` is True (and a `bias_initializer` is provided),
+    a bias vector is created and added to the outputs. Finally, if
+    `activation` is not `None`, it is applied to the outputs as well.
+    Different from trivial `Conv` layers, `GroupConv` divide the input channels into
+    several groups, and apply trivial convolution (or called dense convolution) to
+    each group. Inside each group, the convolution is trivial, however, between each
+    two groups, the convolutions are independent.
+    Arguments:
+        rank: An integer, the rank of the convolution, e.g. "2" for 2D convolution.
+        lgroups: Integer, the group number of the latent convolution branch. The
+            number of filters in the whole latent space is lgroups * lfilters.
+        lfilters: Integer, the dimensionality in each the lattent group (i.e. the
+            number of filters in each latent convolution branch).
+        kernel_size: An integer or tuple/list of n integers, specifying the
+            length of the convolution window.
+        strides: An integer or tuple/list of n integers,
+            specifying the stride length of the convolution.
+            Specifying any stride value != 1 is incompatible with specifying
+            any `dilation_rate` value != 1.
+        padding: One of `"valid"`,  `"same"`, or `"causal"` (case-insensitive).
+        data_format: A string, one of `channels_last` (default) or `channels_first`.
+            The ordering of the dimensions in the inputs.
+            `channels_last` corresponds to inputs with shape
+            `(batch, ..., channels)` while `channels_first` corresponds to
+            inputs with shape `(batch, channels, ...)`.
+        dilation_rate: An integer or tuple/list of n integers, specifying
+            the dilation rate to use for dilated convolution.
+            Currently, specifying any `dilation_rate` value != 1 is
+            incompatible with specifying any `strides` value != 1.
+        activation: Activation function. Set it to None to maintain a
+            linear activation.
+        use_bias: Boolean, whether the layer uses a bias.
+        kernel_initializer: An initializer for the convolution kernel.
+        bias_initializer: An initializer for the bias vector. If None, the default
+            initializer will be used.
+        kernel_regularizer: Optional regularizer for the convolution kernel.
+        bias_regularizer: Optional regularizer for the bias vector.
+        activity_regularizer: Optional regularizer function for the output.
+        kernel_constraint: Optional projection function to be applied to the
+            kernel after being updated by an `Optimizer` (e.g. used to implement
+            norm constraints or value constraints for layer weights). The function
+            must take as input the unprojected variable and must return the
+            projected variable (which must have the same shape). Constraints are
+            not safe to use when doing asynchronous distributed training.
+        bias_constraint: Optional projection function to be applied to the
+            bias after being updated by an `Optimizer`.
+        trainable: Boolean, if `True` also add variables to the graph collection
+            `GraphKeys.TRAINABLE_VARIABLES` (see `tf.Variable`).
+        name: A string, the name of the layer.
+    """
+
+    def __init__(self, rank,
+                 lgroups,
+                 lfilters,
+                 kernel_size,
+                 strides=1,
+                 padding='valid',
+                 data_format=None,
+                 dilation_rate=1,
+                 activation=None,
+                 use_bias=True,
+                 kernel_initializer='glorot_uniform',
+                 bias_initializer='zeros',
+                 kernel_regularizer=None,
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 kernel_constraint=None,
+                 bias_constraint=None,
+                 trainable=True,
+                 name=None,
+                 **kwargs):
+        super(Conv, self).__init__(
+                trainable=trainable,
+                name=name,
+                activity_regularizer=regularizers.get(activity_regularizer),
+                **kwargs)
+        self.rank = rank
+        self.lgroups = lgroups
+        self.lfilters = lfilters
+        self.kernel_size = conv_utils.normalize_tuple(
+                kernel_size, rank, 'kernel_size')
+        self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
+        self.padding = conv_utils.normalize_padding(padding)
+        if (self.padding == 'causal' and not isinstance(self, (Conv1D, SeparableConv1D))):
+            raise ValueError('Causal padding is only supported for `Conv1D` and ``SeparableConv1D`.')
+        self.data_format = conv_utils.normalize_data_format(data_format)
+        self.dilation_rate = conv_utils.normalize_tuple(
+             dilation_rate, rank, 'dilation_rate')
+        self.activation = activations.get(activation)
+        self.use_bias = use_bias
+        self.kernel_initializer = initializers.get(kernel_initializer)
+        self.bias_initializer = initializers.get(bias_initializer)
+        self.kernel_regularizer = regularizers.get(kernel_regularizer)
+        self.bias_regularizer = regularizers.get(bias_regularizer)
+        self.kernel_constraint = constraints.get(kernel_constraint)
+        self.bias_constraint = constraints.get(bias_constraint)
+        self.input_spec = InputSpec(ndim=self.rank + 2)
+
+        self.group_input_dim = None
+
+    def build(self, input_shape):
+        input_shape = tensor_shape.TensorShape(input_shape)
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
+        input_dim = int(input_shape[channel_axis])
+        if input_dim % self.lgroups != 0:
+            raise ValueError('To grouplize the input channels, the input channel number should be a multiple of group number (N*{0}), but given {1}'.format(self.lgroups, input_dim))
+        self.group_input_dim = input_dim // self.lgroups
+        kernel_shape = self.kernel_size + (self.group_input_dim, self.lfilters * self.lgroups)
+
+        self.kernel = self.add_weight(
+                name='kernel',
+                shape=kernel_shape,
+                initializer=self.kernel_initializer,
+                regularizer=self.kernel_regularizer,
+                constraint=self.kernel_constraint,
+                trainable=True,
+                dtype=self.dtype)
+        if self.use_bias:
+            self.bias = self.add_weight(
+                name='bias',
+                shape=(self.lfilters * self.lgroups,),
+                initializer=self.bias_initializer,
+                regularizer=self.bias_regularizer,
+                constraint=self.bias_constraint,
+                trainable=True,
+                dtype=self.dtype)
+        else:
+            self.bias = None
+        self.input_spec = InputSpec(ndim=self.rank + 2, axes={channel_axis: input_dim})
+        if self.padding == 'causal':
+            op_padding = 'valid'
+        else:
+            op_padding = self.padding
+        # Create conv. op groups.
+        if self.data_format == 'channels_first':
+            group_input_shape = tensor_shape.TensorShape([input_shape[0], self.group_input_dim, *input_shape[1:]])
+        else:
+            group_input_shape = tensor_shape.TensorShape([input_shape[0], *input_shape[1:], self.group_input_dim])
+        group_kernel_shape = tensor_shape.TensorShape([*kernel_shape[:-1], self.lfilters])
+        self._convolution_op = nn_ops.Convolution(
+                group_input_shape,
+                filter_shape=group_kernel_shape,
+                dilation_rate=self.dilation_rate,
+                strides=self.strides,
+                padding=op_padding.upper(),
+                data_format=conv_utils.convert_data_format(self.data_format, self.rank + 2))
+        self.built = True
+
+    def call(self, inputs):
+        outputs_list = []
+        if self.data_format == 'channels_first':
+            for i in range(self.lgroups):
+                get_output = self._convolution_op(inputs[:,i*self.group_input_dim:(i+1)*self.group_input_dim, ...], self.kernel[..., i*self.lfilters:(i+1)*self.lfilters])
+                outputs_list.append(get_output)
+            outputs = array_ops.concat(outputs_list, 1)
+        else:
+            for i in range(self.lgroups):
+                get_output = self._convolution_op(inputs[..., i*self.group_input_dim:(i+1)*self.group_input_dim], self.kernel[..., i*self.lfilters:(i+1)*self.lfilters])
+                outputs_list.append(get_output)
+            outputs = array_ops.concat(outputs_list, -1)
+
+        if self.use_bias:
+            if self.data_format == 'channels_first':
+                if self.rank == 1:
+                    # nn.bias_add does not accept a 1D input tensor.
+                    bias = array_ops.reshape(self.bias, (1, self.lfilters * self.lgroups, 1))
+                    outputs += bias
+                if self.rank == 2:
+                    outputs = nn.bias_add(outputs, self.bias, data_format='NCHW')
+                if self.rank == 3:
+                    # As of Mar 2017, direct addition is significantly slower than
+                    # bias_add when computing gradients. To use bias_add, we collapse Z
+                    # and Y into a single dimension to obtain a 4D input tensor.
+                    outputs_shape = outputs.shape.as_list()
+                    if outputs_shape[0] is None:
+                        outputs_shape[0] = -1
+                    outputs_4d = array_ops.reshape(outputs,
+                                                   [outputs_shape[0], outputs_shape[1],
+                                                   outputs_shape[2] * outputs_shape[3],
+                                                   outputs_shape[4]])
+                    outputs_4d = nn.bias_add(outputs_4d, self.bias, data_format='NCHW')
+                    outputs = array_ops.reshape(outputs_4d, outputs_shape)
+            else:
+                outputs = nn.bias_add(outputs, self.bias, data_format='NHWC')
+
+        if self.activation is not None:
+            return self.activation(outputs)
+        return outputs
+
+    def compute_output_shape(self, input_shape):
+        input_shape = tensor_shape.TensorShape(input_shape).as_list()
+        if self.data_format == 'channels_last':
+            space = input_shape[1:-1]
+            new_space = []
+            for i in range(len(space)):
+                new_dim = conv_utils.conv_output_length(
+                        space[i],
+                        self.kernel_size[i],
+                        padding=self.padding,
+                        stride=self.strides[i],
+                        dilation=self.dilation_rate[i])
+                new_space.append(new_dim)
+            return tensor_shape.TensorShape([input_shape[0]] + new_space + [self.lfilters * self.lgroups])
+        else:
+            space = input_shape[2:]
+            new_space = []
+            for i in range(len(space)):
+                new_dim = conv_utils.conv_output_length(
+                        space[i],
+                        self.kernel_size[i],
+                        padding=self.padding,
+                        stride=self.strides[i],
+                        dilation=self.dilation_rate[i])
+                new_space.append(new_dim)
+            return tensor_shape.TensorShape([input_shape[0], self.lfilters * self.lgroups] + new_space)
+
+    def get_config(self):
+        config = {
+            'lgroups': self.lgroups,
+            'lfilters': self.lfilters,
+            'kernel_size': self.kernel_size,
+            'strides': self.strides,
+            'padding': self.padding,
+            'data_format': self.data_format,
+            'dilation_rate': self.dilation_rate,
+            'activation': activations.serialize(self.activation),
+            'use_bias': self.use_bias,
+            'kernel_initializer': initializers.serialize(self.kernel_initializer),
+            'bias_initializer': initializers.serialize(self.bias_initializer),
+            'kernel_regularizer': regularizers.serialize(self.kernel_regularizer),
+            'bias_regularizer': regularizers.serialize(self.bias_regularizer),
+            'activity_regularizer':
+                    regularizers.serialize(self.activity_regularizer),
+            'kernel_constraint': constraints.serialize(self.kernel_constraint),
+            'bias_constraint': constraints.serialize(self.bias_constraint)
+        }
+        base_config = super(Conv, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+    def _compute_causal_padding(self):
+        """Calculates padding for 'causal' option for 1-d conv layers."""
+        left_pad = self.dilation_rate[0] * (self.kernel_size[0] - 1)
+        if self.data_format == 'channels_last':
+            causal_padding = [[0, 0], [left_pad, 0], [0, 0]]
+        else:
+            causal_padding = [[0, 0], [0, 0], [left_pad, 0]]
+        return causal_padding
+
+class GroupConv1D(_GroupConv):
+    """1D group convolution layer (e.g. temporal group convolution).
+    This layer creates a convolution kernel that is convolved
+    with the layer input over a single spatial (or temporal) dimension
+    to produce a tensor of outputs.
+    Different from trivial `Conv` layers, `GroupConv` divide the input 
+    channels into several groups, and apply trivial convolution (or called 
+    dense convolution) to each group. Inside each group, the convolution is
+    trivial, however, between each two groups, the convolutions are independent.
+    If `use_bias` is True, a bias vector is created and added to the outputs.
+    Finally, if `activation` is not `None`,
+    it is applied to the outputs as well.
+    When using this layer as the first layer in a model,
+    provide an `input_shape` argument
+    (tuple of integers or `None`, e.g.
+    `(10, 128)` for sequences of 10 vectors of 128-dimensional vectors,
+    or `(None, 128)` for variable-length sequences of 128-dimensional vectors.
+    Arguments:
+        lgroups: Integer, the group number of the latent convolution branch. The
+            number of filters in the whole latent space is lgroups * lfilters.
+        lfilters: Integer, the dimensionality in each the lattent group (i.e. the
+            number of filters in each latent convolution branch).
+        kernel_size: An integer or tuple/list of a single integer,
+            specifying the length of the 1D convolution window.
+        strides: An integer or tuple/list of a single integer,
+            specifying the stride length of the convolution.
+            Specifying any stride value != 1 is incompatible with specifying
+            any `dilation_rate` value != 1.
+        padding: One of `"valid"`, `"causal"` or `"same"` (case-insensitive).
+            `"causal"` results in causal (dilated) convolutions, e.g. output[t]
+            does not depend on input[t+1:]. Useful when modeling temporal data
+            where the model should not violate the temporal order.
+            See [WaveNet: A Generative Model for Raw Audio, section
+                2.1](https://arxiv.org/abs/1609.03499).
+        data_format: A string,
+            one of `channels_last` (default) or `channels_first`.
+        dilation_rate: an integer or tuple/list of a single integer, specifying
+            the dilation rate to use for dilated convolution.
+            Currently, specifying any `dilation_rate` value != 1 is
+            incompatible with specifying any `strides` value != 1.
+        activation: Activation function to use.
+            If you don't specify anything, no activation is applied
+            (ie. "linear" activation: `a(x) = x`).
+        use_bias: Boolean, whether the layer uses a bias vector.
+        kernel_initializer: Initializer for the `kernel` weights matrix.
+        bias_initializer: Initializer for the bias vector.
+        kernel_regularizer: Regularizer function applied to
+            the `kernel` weights matrix.
+        bias_regularizer: Regularizer function applied to the bias vector.
+        activity_regularizer: Regularizer function applied to
+            the output of the layer (its "activation")..
+        kernel_constraint: Constraint function applied to the kernel matrix.
+        bias_constraint: Constraint function applied to the bias vector.
+    Input shape:
+        3D tensor with shape: `(batch_size, steps, input_dim)`
+    Output shape:
+        3D tensor with shape: `(batch_size, new_steps, filters)`
+        `steps` value might have changed due to padding or strides.
+    """
+
+    def __init__(self,
+                 lgroups,
+                 lfilters,
+                 kernel_size,
+                 strides=1,
+                 padding='valid',
+                 data_format='channels_last',
+                 dilation_rate=1,
+                 activation=None,
+                 use_bias=True,
+                 kernel_initializer='glorot_uniform',
+                 bias_initializer='zeros',
+                 kernel_regularizer=None,
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 kernel_constraint=None,
+                 bias_constraint=None,
+                 **kwargs):
+        super(GroupConv1D, self).__init__(
+            rank=1,
+            lgroups=lgroups,
+            lfilters=lfilters,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            data_format=data_format,
+            dilation_rate=dilation_rate,
+            activation=activations.get(activation),
+            use_bias=use_bias,
+            kernel_initializer=initializers.get(kernel_initializer),
+            bias_initializer=initializers.get(bias_initializer),
+            kernel_regularizer=regularizers.get(kernel_regularizer),
+            bias_regularizer=regularizers.get(bias_regularizer),
+            activity_regularizer=regularizers.get(activity_regularizer),
+            kernel_constraint=constraints.get(kernel_constraint),
+            bias_constraint=constraints.get(bias_constraint),
+            **kwargs)
+
+    def call(self, inputs):
+        if self.padding == 'causal':
+            inputs = array_ops.pad(inputs, self._compute_causal_padding())
+        return super(Conv1D, self).call(inputs)
+
+class GroupConv2D(_GroupConv):
+    """2D group convolution layer (e.g. spatial group convolution over images).
+    This layer creates a convolution kernel that is convolved
+    with the layer input to produce a tensor of outputs.
+    Different from trivial `Conv` layers, `GroupConv` divide the input 
+    channels into several groups, and apply trivial convolution (or called 
+    dense convolution) to each group. Inside each group, the convolution is
+    trivial, however, between each two groups, the convolutions are independent. 
+    If `use_bias` is True, a bias vector is created and added to the outputs. 
+    Finally, if `activation` is not `None`, it is applied to the outputs as well.
+    When using this layer as the first layer in a model,
+    provide the keyword argument `input_shape`
+    (tuple of integers, does not include the sample axis),
+    e.g. `input_shape=(128, 128, 3)` for 128x128 RGB pictures
+    in `data_format="channels_last"`.
+    Arguments:
+        lgroups: Integer, the group number of the latent convolution branch. The
+            number of filters in the whole latent space is lgroups * lfilters.
+        lfilters: Integer, the dimensionality in each the lattent group (i.e. the
+            number of filters in each latent convolution branch).
+        kernel_size: An integer or tuple/list of 2 integers, specifying the
+            height and width of the 2D convolution window.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+        strides: An integer or tuple/list of 2 integers,
+            specifying the strides of the convolution along the height and width.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+            Specifying any stride value != 1 is incompatible with specifying
+            any `dilation_rate` value != 1.
+        padding: one of `"valid"` or `"same"` (case-insensitive).
+        data_format: A string,
+            one of `channels_last` (default) or `channels_first`.
+            The ordering of the dimensions in the inputs.
+            `channels_last` corresponds to inputs with shape
+            `(batch, height, width, channels)` while `channels_first`
+            corresponds to inputs with shape
+            `(batch, channels, height, width)`.
+            It defaults to the `image_data_format` value found in your
+            Keras config file at `~/.keras/keras.json`.
+            If you never set it, then it will be "channels_last".
+        dilation_rate: an integer or tuple/list of 2 integers, specifying
+            the dilation rate to use for dilated convolution.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+            Currently, specifying any `dilation_rate` value != 1 is
+            incompatible with specifying any stride value != 1.
+        activation: Activation function to use.
+            If you don't specify anything, no activation is applied
+            (ie. "linear" activation: `a(x) = x`).
+        use_bias: Boolean, whether the layer uses a bias vector.
+        kernel_initializer: Initializer for the `kernel` weights matrix.
+        bias_initializer: Initializer for the bias vector.
+        kernel_regularizer: Regularizer function applied to
+            the `kernel` weights matrix.
+        bias_regularizer: Regularizer function applied to the bias vector.
+        activity_regularizer: Regularizer function applied to
+            the output of the layer (its "activation")..
+        kernel_constraint: Constraint function applied to the kernel matrix.
+        bias_constraint: Constraint function applied to the bias vector.
+    Input shape:
+        4D tensor with shape:
+        `(samples, channels, rows, cols)` if data_format='channels_first'
+        or 4D tensor with shape:
+        `(samples, rows, cols, channels)` if data_format='channels_last'.
+    Output shape:
+        4D tensor with shape:
+        `(samples, filters, new_rows, new_cols)` if data_format='channels_first'
+        or 4D tensor with shape:
+        `(samples, new_rows, new_cols, filters)` if data_format='channels_last'.
+        `rows` and `cols` values might have changed due to padding.
+    """
+
+    def __init__(self,
+                 lgroups,
+                 lfilters,
+                 kernel_size,
+                 strides=(1, 1),
+                 padding='valid',
+                 data_format=None,
+                 dilation_rate=(1, 1),
+                 activation=None,
+                 use_bias=True,
+                 kernel_initializer='glorot_uniform',
+                 bias_initializer='zeros',
+                 kernel_regularizer=None,
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 kernel_constraint=None,
+                 bias_constraint=None,
+                 **kwargs):
+        super(GroupConv2D, self).__init__(
+            rank=2,
+            lgroups=lgroups,
+            lfilters=lfilters,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            data_format=data_format,
+            dilation_rate=dilation_rate,
+            activation=activations.get(activation),
+            use_bias=use_bias,
+            kernel_initializer=initializers.get(kernel_initializer),
+            bias_initializer=initializers.get(bias_initializer),
+            kernel_regularizer=regularizers.get(kernel_regularizer),
+            bias_regularizer=regularizers.get(bias_regularizer),
+            activity_regularizer=regularizers.get(activity_regularizer),
+            kernel_constraint=constraints.get(kernel_constraint),
+            bias_constraint=constraints.get(bias_constraint),
+            **kwargs)
+
+class GroupConv3D(_GroupConv):
+    """3D group convolution layer (e.g. spatial group convolution over volumes).
+    This layer creates a convolution kernel that is convolved
+    with the layer input to produce a tensor of outputs.
+    Different from trivial `Conv` layers, `GroupConv` divide the input 
+    channels into several groups, and apply trivial convolution (or called 
+    dense convolution) to each group. Inside each group, the convolution is
+    trivial, however, between each two groups, the convolutions are independent.
+    If `use_bias` is True, a bias vector is created and added to the outputs.
+    Finally, if `activation` is not `None`, it is applied to the outputs as well.
+    When using this layer as the first layer in a model,
+    provide the keyword argument `input_shape`
+    (tuple of integers, does not include the sample axis),
+    e.g. `input_shape=(128, 128, 128, 1)` for 128x128x128 volumes
+    with a single channel,
+    in `data_format="channels_last"`.
+    Arguments:
+        lgroups: Integer, the group number of the latent convolution branch. The
+            number of filters in the whole latent space is lgroups * lfilters.
+        lfilters: Integer, the dimensionality in each the lattent group (i.e. the
+            number of filters in each latent convolution branch).
+        kernel_size: An integer or tuple/list of 3 integers, specifying the
+            depth, height and width of the 3D convolution window.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+        strides: An integer or tuple/list of 3 integers,
+            specifying the strides of the convolution along each spatial
+                dimension.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+            Specifying any stride value != 1 is incompatible with specifying
+            any `dilation_rate` value != 1.
+        padding: one of `"valid"` or `"same"` (case-insensitive).
+        data_format: A string,
+            one of `channels_last` (default) or `channels_first`.
+            The ordering of the dimensions in the inputs.
+            `channels_last` corresponds to inputs with shape
+            `(batch, spatial_dim1, spatial_dim2, spatial_dim3, channels)`
+            while `channels_first` corresponds to inputs with shape
+            `(batch, channels, spatial_dim1, spatial_dim2, spatial_dim3)`.
+            It defaults to the `image_data_format` value found in your
+            Keras config file at `~/.keras/keras.json`.
+            If you never set it, then it will be "channels_last".
+        dilation_rate: an integer or tuple/list of 3 integers, specifying
+            the dilation rate to use for dilated convolution.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+            Currently, specifying any `dilation_rate` value != 1 is
+            incompatible with specifying any stride value != 1.
+        activation: Activation function to use.
+            If you don't specify anything, no activation is applied
+            (ie. "linear" activation: `a(x) = x`).
+        use_bias: Boolean, whether the layer uses a bias vector.
+        kernel_initializer: Initializer for the `kernel` weights matrix.
+        bias_initializer: Initializer for the bias vector.
+        kernel_regularizer: Regularizer function applied to
+            the `kernel` weights matrix.
+        bias_regularizer: Regularizer function applied to the bias vector.
+        activity_regularizer: Regularizer function applied to
+            the output of the layer (its "activation")..
+        kernel_constraint: Constraint function applied to the kernel matrix.
+        bias_constraint: Constraint function applied to the bias vector.
+    Input shape:
+        5D tensor with shape:
+        `(samples, channels, conv_dim1, conv_dim2, conv_dim3)` if
+            data_format='channels_first'
+        or 5D tensor with shape:
+        `(samples, conv_dim1, conv_dim2, conv_dim3, channels)` if
+            data_format='channels_last'.
+    Output shape:
+        5D tensor with shape:
+        `(samples, filters, new_conv_dim1, new_conv_dim2, new_conv_dim3)` if
+            data_format='channels_first'
+        or 5D tensor with shape:
+        `(samples, new_conv_dim1, new_conv_dim2, new_conv_dim3, filters)` if
+            data_format='channels_last'.
+        `new_conv_dim1`, `new_conv_dim2` and `new_conv_dim3` values might have
+            changed due to padding.
+    """
+
+    def __init__(self,
+                 lgroups,
+                 lfilters,
+                 kernel_size,
+                 strides=(1, 1, 1),
+                 padding='valid',
+                 data_format=None,
+                 dilation_rate=(1, 1, 1),
+                 activation=None,
+                 use_bias=True,
+                 kernel_initializer='glorot_uniform',
+                 bias_initializer='zeros',
+                 kernel_regularizer=None,
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 kernel_constraint=None,
+                 bias_constraint=None,
+                 **kwargs):
+        super(GroupConv3D, self).__init__(
+            rank=3,
+            lgroups=lgroups,
+            lfilters=lfilters,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            data_format=data_format,
+            dilation_rate=dilation_rate,
+            activation=activations.get(activation),
+            use_bias=use_bias,
+            kernel_initializer=initializers.get(kernel_initializer),
+            bias_initializer=initializers.get(bias_initializer),
+            kernel_regularizer=regularizers.get(kernel_regularizer),
+            bias_regularizer=regularizers.get(bias_regularizer),
+            activity_regularizer=regularizers.get(activity_regularizer),
+            kernel_constraint=constraints.get(kernel_constraint),
+            bias_constraint=constraints.get(bias_constraint),
+            **kwargs)
 
 class _AConv(Layer):
     """Modern convolutional layer.
