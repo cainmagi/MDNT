@@ -30,6 +30,9 @@
 # ture of such a scheme is as
 #   Input + "Inception-v4 plain block"
 # We have also implemented the InceptRes-v4 in this module.
+# Version: 0.33 # 2019/6/4
+# Comments:
+#   Minor change for default settings for network parameters.
 # Version: 0.32 # 2019/6/4
 # Comments:
 #   Improve the quality of the codes.
@@ -1098,7 +1101,7 @@ class _InceptionTranspose(Layer):
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
         self.channelIn = input_shape.as_list()[-1]
         if self.lfilters is None:
-            self.lfilters = self.channelIn
+            self.lfilters = max( 1, self.channelIn // 2 )
         # If setting output_mshape, need to infer output_padding & output_cropping
         if self.output_mshape is not None:
             if not isinstance(self.output_mshape, (list, tuple)):
@@ -2123,7 +2126,7 @@ class _Inceptres(Layer):
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
         self.channelIn = input_shape.as_list()[-1]
         if self.lfilters is None:
-            self.lfilters = max( 1, self.channelIn // 2 )
+            self.lfilters = max( 2, self.channelIn // self.depth )
         # Here we define the left branch
         if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
             self.layer_branch_left = None
@@ -3032,7 +3035,7 @@ class _InceptresTranspose(Layer):
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
         self.channelIn = input_shape.as_list()[-1]
         if self.lfilters is None:
-            self.lfilters = self.channelIn
+            self.lfilters = max( 2, self.channelIn // self.depth )
         # If setting output_mshape, need to infer output_padding & output_cropping
         if self.output_mshape is not None:
             if not isinstance(self.output_mshape, (list, tuple)):
