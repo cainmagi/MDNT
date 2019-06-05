@@ -19,7 +19,7 @@
 # ```
 # to perform the test. Here we use `inst` to set instance
 # normalization.
-# Version: 1.00 # 2019/6/1
+# Version: 1.00 # 2019/6/4
 # Comments:
 #   Create this project.
 ####################################################################
@@ -261,12 +261,13 @@ if __name__ == '__main__':
         tf.gfile.MakeDirs(folder)
         logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs/', args.savedPath), 
             histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=5)
+        reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=args.learningRate*0.01, verbose=1)
         denoiser.fit(x_train_noisy, x_train,
                     epochs=args.epoch,
                     batch_size=args.trainBatchNum,
                     shuffle=True,
                     validation_data=(x_test, x_test),
-                    callbacks=[checkpointer, logger])
+                    callbacks=[checkpointer, logger, reduce_lr])
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
         denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})

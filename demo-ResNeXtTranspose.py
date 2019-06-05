@@ -2,24 +2,24 @@
 # -*- coding: UTF8-*- #
 '''
 ####################################################################
-# Demo for transposed residual layers.
+# Demo for transposed ResNeXt layers.
 # Yuchen Jin @ cainmagi@gmail.com
 # Requirements: (Pay attention to version)
 #   python 3.6
 #   tensorflow r1.13+
 #   numpy, matplotlib
-# Test the performance of modern transposed residual layers.
+# Test the performance of modern transposed ResNeXt layers.
 # Use
 # ```
-# python demo-ResTranspose.py -m tr -s trinst -mm inst
+# python demo-ResNeXtTranspose.py -m tr -s trninst -mm inst
 # ```
 # to train the network. Then use
 # ```
-# python demo-ResTranspose.py -m ts -s trinst -mm inst -rd model-...
+# python demo-ResNeXtTranspose.py -m ts -s trninst -mm inst -rd model-...
 # ```
 # to perform the test. Here we use `inst` to set instance
 # normalization.
-# Version: 1.00 # 2019/5/30
+# Version: 1.00 # 2019/6/5
 # Comments:
 #   Create this project.
 ####################################################################
@@ -92,20 +92,20 @@ def build_model(mode='bias'):
     # Create encode layers
     conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(input_img)
     for i in range(3):
-        conv_1 = mdnt.layers.Residual2D(channel_1, (3, 3), normalization=mode, activation='prelu')(conv_1)
-    conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_1)
+        conv_1 = mdnt.layers.Resnext2D(channel_1, (3, 3), normalization=mode, activation='prelu')(conv_1)
+    conv_2 = mdnt.layers.Resnext2D(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_1)
     for i in range(3):
-        conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), normalization=mode, activation='prelu')(conv_2)
-    conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_2)
+        conv_2 = mdnt.layers.Resnext2D(channel_2, (3, 3), normalization=mode, activation='prelu')(conv_2)
+    conv_3 = mdnt.layers.Resnext2D(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_2)
     for i in range(3):
-        conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), normalization=mode, activation='prelu')(conv_3)
+        conv_3 = mdnt.layers.Resnext2D(channel_3, (3, 3), normalization=mode, activation='prelu')(conv_3)
     # Create decode layers
-    deconv_1 = mdnt.layers.Residual2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu')(conv_3)
+    deconv_1 = mdnt.layers.Resnext2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu')(conv_3)
     for i in range(3):
-        deconv_1 = mdnt.layers.Residual2D(channel_2, (3, 3), normalization=mode, activation='prelu')(deconv_1)
-    deconv_2 = mdnt.layers.Residual2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu')(deconv_1)
+        deconv_1 = mdnt.layers.Resnext2D(channel_2, (3, 3), normalization=mode, activation='prelu')(deconv_1)
+    deconv_2 = mdnt.layers.Resnext2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu')(deconv_1)
     for i in range(3):
-        deconv_2 = mdnt.layers.Residual2D(channel_1, (3, 3), normalization=mode, activation='prelu')(deconv_2)
+        deconv_2 = mdnt.layers.Resnext2D(channel_1, (3, 3), normalization=mode, activation='prelu')(deconv_2)
     deconv_3 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), output_mshape=input_img.get_shape(), normalization='bias', padding='same', activation=tf.nn.sigmoid)(deconv_2)
     # this model maps an input to its reconstruction
     denoiser = tf.keras.models.Model(input_img, deconv_3)

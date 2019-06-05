@@ -248,12 +248,15 @@ if __name__ == '__main__':
             tf.gfile.DeleteRecursively(folder)
         checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_loss:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
+        logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs/', args.savedPath), 
+            histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=5)
+        reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=args.learningRate*0.01, verbose=1)
         denoiser.fit(x_train_noisy, x_train,
                     epochs=args.epoch,
                     batch_size=args.trainBatchNum,
                     shuffle=True,
                     validation_data=(x_test_noisy, x_test),
-                    callbacks=[checkpointer])
+                    callbacks=[checkpointer, logger, reduce_lr])
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
         denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})
