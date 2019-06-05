@@ -1953,9 +1953,9 @@ class _Resnext(Layer):
             wholeLfilters = self.channelIn
             if (self.lgroups is None) and (self.lfilters is None):
                 self.lgroups = 32
-            if self.lgroups is None:
+            if self.lfilters is None:
                 self.lfilters = max( 1, wholeLfilters // self.lgroups )
-            elif self.lfilters is None:
+            elif self.lgroups is None:
                 self.lgroups = max( 1, wholeLfilters // self.lfilters )
         last_use_bias = True
         if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
@@ -2759,9 +2759,9 @@ class _ResnextTranspose(Layer):
             wholeLfilters = self.channelIn
             if (self.lgroups is None) and (self.lfilters is None):
                 self.lgroups = 32
-            if self.lgroups is None:
+            if self.lfilters is None:
                 self.lfilters = max( 1, wholeLfilters // self.lgroups )
-            elif self.lfilters is None:
+            elif self.lgroups is None:
                 self.lgroups = max( 1, wholeLfilters // self.lfilters )
         # If setting output_mshape, need to infer output_padding & output_cropping
         if self.output_mshape is not None:
