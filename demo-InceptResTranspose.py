@@ -2,7 +2,7 @@
 # -*- coding: UTF8-*- #
 '''
 ####################################################################
-# Demo for transposed inception layers.
+# Demo for transposed inception residual layers.
 # Yuchen Jin @ cainmagi@gmail.com
 # Requirements: (Pay attention to version)
 #   python 3.6
@@ -11,11 +11,11 @@
 # Test the performance of modern transposed inception layers.
 # Use
 # ```
-# python demo-InceptTranspose.py -m tr -s tiinst -mm inst
+# python demo-InceptResTranspose.py -m tr -s tirinst -mm inst
 # ```
 # to train the network. Then use
 # ```
-# python demo-InceptTranspose.py -m ts -s tiinst -mm inst -rd model-...
+# python demo-InceptResTranspose.py -m ts -s tirinst -mm inst -rd model-...
 # ```
 # to perform the test. Here we use `inst` to set instance
 # normalization.
@@ -92,20 +92,20 @@ def build_model(mode='bias'):
     # Create encode layers
     conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(input_img)
     for i in range(3):
-        conv_1 = mdnt.layers.Inception2D(channel_1, (3, 3), normalization=mode, activation='prelu')(conv_1)
-    conv_2 = mdnt.layers.Inception2D(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_1)
+        conv_1 = mdnt.layers.Inceptres2D(channel_1, (3, 3), normalization=mode, activation='prelu')(conv_1)
+    conv_2 = mdnt.layers.Inceptres2D(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_1)
     for i in range(3):
-        conv_2 = mdnt.layers.Inception2D(channel_2, (3, 3), normalization=mode, activation='prelu')(conv_2)
-    conv_3 = mdnt.layers.Inception2D(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_2)
+        conv_2 = mdnt.layers.Inceptres2D(channel_2, (3, 3), normalization=mode, activation='prelu')(conv_2)
+    conv_3 = mdnt.layers.Inceptres2D(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_2)
     for i in range(3):
-        conv_3 = mdnt.layers.Inception2D(channel_3, (3, 3), normalization=mode, activation='prelu')(conv_3)
+        conv_3 = mdnt.layers.Inceptres2D(channel_3, (3, 3), normalization=mode, activation='prelu')(conv_3)
     # Create decode layers
-    deconv_1 = mdnt.layers.Inception2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu')(conv_3)
+    deconv_1 = mdnt.layers.Inceptres2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu')(conv_3)
     for i in range(3):
-        deconv_1 = mdnt.layers.Inception2D(channel_2, (3, 3), normalization=mode, activation='prelu')(deconv_1)
-    deconv_2 = mdnt.layers.Inception2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu')(deconv_1)
+        deconv_1 = mdnt.layers.Inceptres2D(channel_2, (3, 3), normalization=mode, activation='prelu')(deconv_1)
+    deconv_2 = mdnt.layers.Inceptres2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu')(deconv_1)
     for i in range(3):
-        deconv_2 = mdnt.layers.Inception2D(channel_1, (3, 3), normalization=mode, activation='prelu')(deconv_2)
+        deconv_2 = mdnt.layers.Inceptres2D(channel_1, (3, 3), normalization=mode, activation='prelu')(deconv_2)
     deconv_3 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), output_mshape=input_img.get_shape(), normalization='bias', padding='same', activation=tf.nn.sigmoid)(deconv_2)
     # this model maps an input to its reconstruction
     denoiser = tf.keras.models.Model(input_img, deconv_3)

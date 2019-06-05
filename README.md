@@ -41,15 +41,21 @@ The following demos are working for denoising with MNIST data set.
 * `demo-AConv1DTranspose`: Autoencoder based on modern 1D convolutional layers.
 * `demo-ResTranspose`: Autoencoder based on modern residual-v2 layers.
 * `demo-InceptTranspose`: Autoencoder based on modern inception-v4 layers.
+* `demo-InceptResTranspose`: Autoencoder based on modern inception-residual-v2 layers.
 * `demo-external-1`: External layer test 1. We use numpy-api to convert Cartesian coordinates to polar coordinates.
 * `demo-saveH5`: Save `.h5` file.
 * `demo-readH5`: Read `.h5` file.
 * `demo-readH5Multi`: Read two `.h5` files and combine them as a data set.
 * `demo-dataSet`: Use H5 IO to train and test a network.
 
-# Update records
+## Update records
 
-## @ 06/01/2019
+### @ 06/04/2019
+
+1. Update the test (`demo-InceptResTranspose`) for inception-residual (`Inceptres`) layers.
+2. Revise the docstring for `demo-ResTranspose`.
+
+### @ 06/01/2019
 
 1. Move all demos into the branch `demos`.
 2. Add the master branch as the submodule.
