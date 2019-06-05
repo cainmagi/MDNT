@@ -2102,7 +2102,7 @@ class _Resnext(Layer):
             branch_left = inputs
         layer_middle_list = []
         for G in range(self.lgroups):
-            layer_fisrt = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
+            layer_first = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
             branch_right = layer_first(inputs)
             for i in range(self.depth):
                 layer_middle = getattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1))
@@ -2121,7 +2121,7 @@ class _Resnext(Layer):
             branch_left_shape = input_shape
         layer_middle_shape_list = []
         for G in range(self.lgroups):
-            layer_fisrt = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
+            layer_first = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
             branch_right_shape = layer_first.compute_output_shape(input_shape)
             for i in range(self.depth):
                 layer_middle = getattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1))
@@ -2997,7 +2997,7 @@ class _ResnextTranspose(Layer):
             branch_left = outputs
         layer_middle_list = []
         for G in range(self.lgroups):
-            layer_fisrt = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
+            layer_first = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
             branch_right = layer_first(inputs)
             for i in range(self.depth):
                 layer_middle = getattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1))
@@ -3023,7 +3023,7 @@ class _ResnextTranspose(Layer):
             branch_left_shape = next_shape
         layer_middle_shape_list = []
         for G in range(self.lgroups):
-            layer_fisrt = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
+            layer_first = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
             branch_right_shape = layer_first.compute_output_shape(input_shape)
             for i in range(self.depth):
                 layer_middle = getattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1))
