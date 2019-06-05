@@ -2126,7 +2126,7 @@ class _Inceptres(Layer):
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
         self.channelIn = input_shape.as_list()[-1]
         if self.lfilters is None:
-            self.lfilters = max( 2, self.channelIn // self.depth )
+            self.lfilters = max( 1, self.channelIn // 2 )
         # Here we define the left branch
         if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
             self.layer_branch_left = None
@@ -3035,7 +3035,7 @@ class _InceptresTranspose(Layer):
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
         self.channelIn = input_shape.as_list()[-1]
         if self.lfilters is None:
-            self.lfilters = max( 2, self.channelIn // self.depth )
+            self.lfilters = max( 1, self.channelIn // 2 )
         # If setting output_mshape, need to infer output_padding & output_cropping
         if self.output_mshape is not None:
             if not isinstance(self.output_mshape, (list, tuple)):
