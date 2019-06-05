@@ -40,7 +40,7 @@ The following demos are working for denoising with MNIST data set.
 * `demo-AConvTranspose`: Autoencoder based on modern convolutional layers.
 * `demo-AConv1DTranspose`: Autoencoder based on modern 1D convolutional layers.
 * `demo-ResTranspose`: Autoencoder based on modern residual-v2 layers.
-* `demo-ResNeXtTranspose`: Autoencoder based on modern ResNeXt (residual-v3) layers.
+* ~`demo-ResNeXtTranspose`~: Autoencoder based on modern ResNeXt (residual-v3) layers.
 * `demo-InceptTranspose`: Autoencoder based on modern inception-v4 layers.
 * `demo-InceptResTranspose`: Autoencoder based on modern inception-residual-v2 layers.
 * `demo-external-1`: External layer test 1. We use numpy-api to convert Cartesian coordinates to polar coordinates.
@@ -53,7 +53,7 @@ The following demos are working for denoising with MNIST data set.
 
 ### @ 06/05/2019
 
-1. Update the test (`demo-ResNeXtTranspose`) for ResNeXt (`Resnext`) layers.
+1. Update the test (`demo-ResNeXtTranspose`) for ResNeXt (`Resnext`) layers. (Current codes have memory collision.)
 
 ### @ 06/04/2019
 
