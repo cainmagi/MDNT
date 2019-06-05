@@ -188,7 +188,7 @@ class _Inception(Layer):
         self.rank = rank
         self.depth = depth
         if depth < 1:
-            raise ValueError('The depth of the residual block should be >= 1.')
+            raise ValueError('The depth of the inception block should be >= 1.')
         if ofilters % (depth+1) != 0:
             raise ValueError('The output filter number should be the multiple of (depth+1), i.e. N * {0}'.format(depth+1))
         self.ofilters = ofilters // (self.depth + 1)
@@ -1035,13 +1035,11 @@ class _InceptionTranspose(Layer):
         self.rank = rank
         self.depth = depth
         if depth < 1:
-            raise ValueError('The depth of the residual block should be >= 1.')
+            raise ValueError('The depth of the inception block should be >= 1.')
         if ofilters % (depth+1) != 0:
             raise ValueError('The output filter number should be the multiple of (depth+1), i.e. N * {0}'.format(depth+1))
         self.ofilters = ofilters // (self.depth + 1)
         self.lfilters = lfilters
-        if self.depth < 1:
-            raise ValueError('The depth of the residual block should be >= 3.')
         self.kernel_size = conv_utils.normalize_tuple(
             kernel_size, rank, 'kernel_size')
         self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
@@ -1422,7 +1420,6 @@ class _InceptionTranspose(Layer):
         next_shape = self.layer_merge.compute_output_shape([branch_zero_shape, branch_one_shape, *branch_middle_shape_list])
         if self.layer_cropping is not None:
             next_shape = self.layer_cropping.compute_output_shape(next_shape)
-        next_shape = self.layer_conv.compute_output_shape(next_shape)
         return next_shape
     
     def get_config(self):
@@ -2073,7 +2070,7 @@ class _Inceptres(Layer):
         self.rank = rank
         self.depth = depth
         if depth < 1:
-            raise ValueError('The depth of the residual block should be >= 1.')
+            raise ValueError('The depth of the inception block should be >= 1.')
         self.ofilters = ofilters
         self.lfilters = lfilters
         self.kernel_size = conv_utils.normalize_tuple(
@@ -2974,13 +2971,9 @@ class _InceptresTranspose(Layer):
         self.rank = rank
         self.depth = depth
         if depth < 1:
-            raise ValueError('The depth of the residual block should be >= 1.')
-        if ofilters % (depth+1) != 0:
-            raise ValueError('The output filter number should be the multiple of (depth+1), i.e. N * {0}'.format(depth+1))
-        self.ofilters = ofilters // (self.depth + 1)
+            raise ValueError('The depth of the inception block should be >= 1.')
+        self.ofilters = ofilters
         self.lfilters = lfilters
-        if self.depth < 1:
-            raise ValueError('The depth of the residual block should be >= 3.')
         self.kernel_size = conv_utils.normalize_tuple(
             kernel_size, rank, 'kernel_size')
         self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
@@ -3116,7 +3109,7 @@ class _InceptresTranspose(Layer):
         else:
             raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
         # Here we define the left branch
-        if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
+        if self.ofilters == self.channelIn:
             self.layer_branch_left = None
             left_shape = next_shape
         else:
@@ -3124,7 +3117,7 @@ class _InceptresTranspose(Layer):
             self.layer_branch_left = _AConv(rank = self.rank,
                           filters = self.ofilters,
                           kernel_size = 1,
-                          strides = self.strides,
+                          strides = 1,
                           padding = 'same',
                           data_format = self.data_format,
                           dilation_rate = 1,
@@ -3152,11 +3145,11 @@ class _InceptresTranspose(Layer):
         # Consider the branch zero
         if not _check_dl_func(self.strides):
             if self.rank == 1:
-                self.layer_branch_zero = MaxPooling1D(pool_size=self.kernel_size, strides=self.strides, padding='same', data_format=self.data_format)
+                self.layer_branch_zero = MaxPooling1D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
             elif self.rank == 2:
-                self.layer_branch_zero = MaxPooling2D(pool_size=self.kernel_size, strides=self.strides, padding='same', data_format=self.data_format)
+                self.layer_branch_zero = MaxPooling2D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
             elif self.rank == 3:
-                self.layer_branch_zero = MaxPooling3D(pool_size=self.kernel_size, strides=self.strides, padding='same', data_format=self.data_format)
+                self.layer_branch_zero = MaxPooling3D(pool_size=self.kernel_size, strides=1, padding='same', data_format=self.data_format)
             else:
                 raise ValueError('Rank of the inception should be 1, 2 or 3.')
         else:
@@ -3202,11 +3195,11 @@ class _InceptresTranspose(Layer):
         else:
             self.layer_branch_zero_map = None
         # Consider the branch one
-        if (not _check_dl_func(self.strides)) or self.channelIn != self.lfilters:
+        if self.channelIn != self.lfilters:
             self.layer_branch_one = NACUnit(rank = self.rank,
                           filters = self.lfilters,
                           kernel_size = 1,
-                          strides = self.strides,
+                          strides = 1,
                           padding = 'same',
                           data_format = self.data_format,
                           dilation_rate = 1,
@@ -3239,7 +3232,7 @@ class _InceptresTranspose(Layer):
             layer_middle_first = NACUnit(rank = self.rank,
                           filters = self.lfilters,
                           kernel_size = 1,
-                          strides = self.strides,
+                          strides = 1,
                           padding = 'same',
                           data_format = self.data_format,
                           dilation_rate = 1,
@@ -3408,12 +3401,14 @@ class _InceptresTranspose(Layer):
         branch_right_shape = self.layer_branch_right.compute_output_shape([branch_zero_shape, branch_one_shape, *branch_middle_shape_list])
         branch_right_shape = self.layer_branch_right_map.compute_output_shape(branch_right_shape)
         next_shape = self.layer_merge.compute_output_shape([branch_left_shape, branch_right_shape])
+        if self.layer_cropping is not None:
+            next_shape = self.layer_cropping.compute_output_shape(next_shape)
         return next_shape
     
     def get_config(self):
         config = {
             'depth': self.depth,
-            'ofilters': self.ofilters * (self.depth + 1),
+            'ofilters': self.ofilters,
             'lfilters': self.lfilters,
             'kernel_size': self.kernel_size,
             'strides': self.strides,

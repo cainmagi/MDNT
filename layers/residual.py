@@ -1243,7 +1243,6 @@ class _ResidualTranspose(Layer):
         next_shape = self.layer_merge.compute_output_shape([branch_left_shape, branch_right_shape])
         if self.layer_cropping is not None:
             next_shape = self.layer_cropping.compute_output_shape(next_shape)
-        next_shape = self.layer_conv.compute_output_shape(next_shape)
         return next_shape
     
     def get_config(self):
