@@ -36,6 +36,7 @@ The following demos are working for denoising with MNIST data set.
 
 * `demo-AEdense`: Tied autoencoder based on dense layers.
 * `demo-normalize`: Normalization layers.
+* `demo-GroupConv`: Plain group convolutional layers (without normalization).
 * `demo-AConv`: Modern convolutional layers.
 * `demo-AConvTranspose`: Autoencoder based on modern convolutional layers.
 * `demo-AConv1DTranspose`: Autoencoder based on modern 1D convolutional layers.
@@ -54,6 +55,7 @@ The following demos are working for denoising with MNIST data set.
 ### @ 06/05/2019
 
 1. Update the test (`demo-ResNeXtTranspose`) for ResNeXt (`Resnext`) layers. (Current codes have memory collision.)
+2. Update the test (`demo-GroupConv`) for group convolution (`GroupConv`) layers.
 
 ### @ 06/04/2019
 
