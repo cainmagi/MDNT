@@ -20,7 +20,7 @@ Now we have such progress on the semi-product:
     - [x] Modern transposed convolutional layers.
     - [ ] Tied and modern transposed convolutional layers for the symmetric autoencoder.
     - [x] Residual layers (or blocks) and their transposed versions.
-    - [ ] ResNeXt layers (or blocks) and their transposed versions.
+    - [x] ResNeXt layers (or blocks) and their transposed versions.
     - [x] Inception-v4 layers (or blocks) and their transposed versions.
     - [x] InceptionRes-v2 layers (or blocks) and their transposed versions.
     - [ ] InceptionPlus layers (or blocks) and their transposed versions.
@@ -47,6 +47,11 @@ Now we have such progress on the semi-product:
 Check the branch [`demos`][brch-demos] to learn more details.
 
 # Update records
+
+## 0.40 @ 06/05/2019
+
+1. Finish `Resnext1D`, `Resnext2D`, `Resnext3D`, `Resnext1DTranspose`,  `Resnext2DTranspose`, `Resnext3DTranspose` in `.layers`.
+2. Fix the repeating biases problems in inception-residual layers.
 
 ## 0.38 @ 06/04/2019
 

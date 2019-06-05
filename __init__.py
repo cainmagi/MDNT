@@ -14,6 +14,13 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.40 # 2019/6/5
+# Comments:
+# 1. Finish Resnext1D, Resnext2D, Resnext3D,
+#           Resnext1DTranspose, Resnext2DTranspose,
+#           Resnext3DTranspose in .layers.
+# 2. Fix the repeating biases problems in inception-residual
+#    layers.
 # Version: 0.38 # 2019/6/4
 # Comments:
 # 1. Finish Inceptres1D, Inceptres2D, Inceptres3D, 
@@ -65,7 +72,7 @@ from . import optimizers
 from . import layers
 from . import data
 
-__version__ = '0.38'
+__version__ = '0.40'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

@@ -30,6 +30,10 @@
 # ture of such a scheme is as
 #   Input + "Inception-v4 plain block"
 # We have also implemented the InceptRes-v4 in this module.
+# Version: 0.34 # 2019/6/5
+# Comments:
+#   Fix a bug that using repeating biases on inception-residual
+#   layers.
 # Version: 0.33 # 2019/6/4
 # Comments:
 #   Minor change for default settings for network parameters.
@@ -2128,6 +2132,7 @@ class _Inceptres(Layer):
         if self.lfilters is None:
             self.lfilters = max( 1, self.channelIn // 2 )
         # Here we define the left branch
+        last_use_bias = True
         if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
             self.layer_branch_left = None
             left_shape = input_shape
@@ -2335,7 +2340,7 @@ class _Inceptres(Layer):
                           activity_config=self.activity_config,
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
-                          _use_bias=True,
+                          _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_branch_right_map.build(right_shape)
         if compat.COMPATIBLE_MODE: # for compatibility
@@ -3112,6 +3117,7 @@ class _InceptresTranspose(Layer):
         else:
             raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
         # Here we define the left branch
+        last_use_bias = True
         if self.ofilters == self.channelIn:
             self.layer_branch_left = None
             left_shape = next_shape
@@ -3319,7 +3325,7 @@ class _InceptresTranspose(Layer):
                           activity_config=self.activity_config,
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
-                          _use_bias=True,
+                          _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_branch_right_map.build(right_shape)
         if compat.COMPATIBLE_MODE: # for compatibility
