@@ -27,8 +27,9 @@ Now we have such progress on the semi-product:
     - [ ] InceptionPlus layers (or blocks) and their transposed versions.
     - [x] External interface for using generic python function.
 - [ ] data:
-    - [x] Basic h5py IO handles.
-    - [ ] Basic HDF5 IO handles.
+    - [x] Basic h5py (HDF5) IO handles.
+    - [ ] Basic SQLite IO handles.
+    - [ ] Basic Bcolz IO handles.
     - [ ] Basic CSV IO handles.
     - [ ] Basic JSON IO handles.
     - [ ] Data parsing utilities.
@@ -47,56 +48,56 @@ Now we have such progress on the semi-product:
 
 Check the branch [`demos`][brch-demos] to learn more details.
 
-# Update records
+## Update records
 
-## 0.42 @ 06/05/2019
+### 0.42 @ 06/05/2019
 
 1. Finish `GroupConv1D`, `GroupConv2D`, `GroupConv3D` in `.layers`.
 2. Fix the bugs in channel detections for residual and inception layers.
 
-## 0.40 @ 06/05/2019
+### 0.40 @ 06/05/2019
 
 1. Finish `Resnext1D`, `Resnext2D`, `Resnext3D`, `Resnext1DTranspose`,  `Resnext2DTranspose`, `Resnext3DTranspose` in `.layers`.
 2. Fix the repeating biases problems in inception-residual layers.
 
-## 0.38 @ 06/04/2019
+### 0.38 @ 06/04/2019
 
 1. Finish `Inceptres1D`, `Inceptres2D`, `Inceptres3D`, `Inceptres1DTranspose`,  `Inceptres2DTranspose`, `Inceptres3DTranspose` in `.layers`.
 2. Fix some bugs and revise docstrings for `.layers.residual` and `.layers.inception`.
 
-## 0.36 @ 06/01/2019
+### 0.36 @ 06/01/2019
 
 Finish `Inception1D`, `Inception2D`, `Inception3D`, `Inception1DTranspose`,  `Inception2DTranspose`, `Inception3DTranspose` in `.layers`.
 
-## 0.32 @ 05/31/2019
+### 0.32 @ 05/31/2019
 
 Finish `Residual1D`, `Residual2D`, `Residual3D`, `Residual1DTranspose`,  `Residual2DTranspose`, `Residual3DTranspose` in `.layers`.
 
-## 0.28 @ 05/24/2019
+### 0.28 @ 05/24/2019
 
 1. Fix the bug about padding for transposed dilation convolutional layers.
 2. Add a new option `output_mshape` to help transposed convolutional layers to control the desired output shape.
 3. Finish `PyExternal` in `.layers`.
 
-## 0.24 @ 03/31/2019
+### 0.24 @ 03/31/2019
 
 Finish `H5GCombiner` in `.data`.
 
-## 0.23 @ 03/27/2019
+### 0.23 @ 03/27/2019
 
 1. Use `keras.Sequence()` to redefine `H5GParser` and `H5HGParser`.
 2. Add compatible check.
 
-## 0.22 @ 03/26/2019
+### 0.22 @ 03/26/2019
 
 Adjust the `.data.h5py` module to make it more generalized.
 
-## 0.20 @ 03/26/2019
+### 0.20 @ 03/26/2019
 
 1. Finish `H5HGParser`, `H5SupSaver`, `H5GParser` in `.data`.
 2. Finish `DenseTied`, `InstanceNormalization`, `GroupNormalization`, `AConv1D`, `AConv2D`, `AConv3D`, `AConv1DTranspose`,  `AConv2DTranspose`, `AConv3DTranspose` in `.layers`.
 
-## 0.10 @ 03/23/2019
+### 0.10 @ 03/23/2019
 
 Create this project.
 

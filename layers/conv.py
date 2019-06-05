@@ -159,7 +159,7 @@ class _GroupConv(Layer):
                  trainable=True,
                  name=None,
                  **kwargs):
-        super(Conv, self).__init__(
+        super(_GroupConv, self).__init__(
                 trainable=trainable,
                 name=name,
                 activity_regularizer=regularizers.get(activity_regularizer),
@@ -329,7 +329,7 @@ class _GroupConv(Layer):
             'kernel_constraint': constraints.serialize(self.kernel_constraint),
             'bias_constraint': constraints.serialize(self.bias_constraint)
         }
-        base_config = super(Conv, self).get_config()
+        base_config = super(_GroupConv, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
     def _compute_causal_padding(self):
@@ -442,7 +442,7 @@ class GroupConv1D(_GroupConv):
     def call(self, inputs):
         if self.padding == 'causal':
             inputs = array_ops.pad(inputs, self._compute_causal_padding())
-        return super(Conv1D, self).call(inputs)
+        return super(GroupConv1D, self).call(inputs)
 
 class GroupConv2D(_GroupConv):
     """2D group convolution layer (e.g. spatial group convolution over images).
