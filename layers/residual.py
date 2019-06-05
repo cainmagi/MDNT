@@ -2897,10 +2897,10 @@ class _ResnextTranspose(Layer):
                             activity_regularizer=self.sub_activity_regularizer,
                             _high_activation=self.high_activation,
                             trainable=self.trainable)
-            layer_first.build(input_shape)
+            layer_first.build(next_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
                 self._trainable_weights.extend(layer_first._trainable_weights)
-            right_shape = layer_first.compute_output_shape(input_shape)
+            right_shape = layer_first.compute_output_shape(next_shape)
             setattr(self, 'layer_G{0:02d}_00'.format(G+1), layer_first)
             # Repeat blocks by depth number
             for i in range(self.depth):
@@ -2998,7 +2998,7 @@ class _ResnextTranspose(Layer):
         layer_middle_list = []
         for G in range(self.lgroups):
             layer_first = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
-            branch_right = layer_first(inputs)
+            branch_right = layer_first(outputs)
             for i in range(self.depth):
                 layer_middle = getattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1))
                 branch_right = layer_middle(branch_right)
@@ -3024,7 +3024,7 @@ class _ResnextTranspose(Layer):
         layer_middle_shape_list = []
         for G in range(self.lgroups):
             layer_first = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
-            branch_right_shape = layer_first.compute_output_shape(input_shape)
+            branch_right_shape = layer_first.compute_output_shape(next_shape)
             for i in range(self.depth):
                 layer_middle = getattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1))
                 branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
