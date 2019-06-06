@@ -291,7 +291,7 @@ class NACUnit(Layer):
         if (self.lgroups is not None) and (self.lgroups > 1):
             self.layer_conv = _GroupConv(rank=self.rank,
                                          lgroups=self.lgroups,
-                                         lfilters=self.filters // self.lfilters,
+                                         lfilters=self.filters // self.lgroups,
                                          kernel_size=self.kernel_size,
                                          strides=self.strides,
                                          padding=self.padding,
@@ -742,7 +742,7 @@ class NACUnitTranspose(Layer):
             if (self.lgroups is not None) and (self.lgroups > 1):
                 self.layer_conv = _GroupConv(rank=self.rank,
                                              lgroups=self.lgroups,
-                                             lfilters=self.filters // self.lfilters,
+                                             lfilters=self.filters // self.lgroups,
                                              kernel_size=self.kernel_size,
                                              strides=1,
                                              padding=self.padding,

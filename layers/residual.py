@@ -2908,7 +2908,7 @@ class _ResnextTranspose(Layer):
         self.layer_first.build(next_shape)
         if compat.COMPATIBLE_MODE: # for compatibility
             self._trainable_weights.extend(self.layer_first._trainable_weights)
-        right_shape = self.layer_first.compute_output_shape(input_shape)
+        right_shape = self.layer_first.compute_output_shape(next_shape)
         # Repeat blocks by depth number
         for i in range(self.depth):
             if i == 0:
