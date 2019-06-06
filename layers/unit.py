@@ -21,6 +21,9 @@
 # The norm-actv-conv structure is proved to be effective by 
 # this paper:
 #   https://arxiv.org/abs/1603.05027
+# Version: 0.15 # 2019/6/6
+# Comments:
+#   Enable the units to work with group convolution.
 # Version: 0.10 # 2019/5/29
 # Comments:
 #   Create this submodule.
@@ -40,6 +43,7 @@ from tensorflow.python.ops import array_ops
 from tensorflow.keras.layers import BatchNormalization, LeakyReLU, PReLU
 from tensorflow.python.keras.layers.convolutional import Conv, Conv2DTranspose, Conv3DTranspose, UpSampling1D, UpSampling2D, UpSampling3D, ZeroPadding1D, ZeroPadding2D, ZeroPadding3D, Cropping1D, Cropping2D, Cropping3D
 from .normalize import InstanceNormalization, GroupNormalization
+from .conv import _GroupConv
 
 from .. import compat
 if compat.COMPATIBLE_MODE:
@@ -74,6 +78,10 @@ class NACUnit(Layer):
             specifying the stride length of the convolution.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
+        lgroups: Latent group number of group convolution. Only if set, use group
+            convolution. The latent filter number of group convolution would
+            be inferred by lfilters = filters // lgroups. Hence, filters should
+            be a multiple of lgroups.
         padding: One of `"valid"`,  `"same"`, or `"causal"` (case-insensitive).
         data_format: A string, one of `channels_last` (default) or `channels_first`.
             The ordering of the dimensions in the inputs.
@@ -131,6 +139,7 @@ class NACUnit(Layer):
                  filters,
                  kernel_size,
                  strides=1,
+                 lgroups=None,
                  padding='valid',
                  data_format=None,
                  dilation_rate=1,
@@ -160,6 +169,10 @@ class NACUnit(Layer):
         # Inherit from keras.layers._Conv
         self.rank = rank
         self.filters = filters
+        self.lgroups = lgroups
+        if (lgroups is not None) and (lgroups > 1):
+            if filters % lgroups != 0:
+                raise ValueError('To grouplize the output channels, the output channel number should be a multiple of group number (N*{0}), but given {1}'.format(self.lgroups, self.filters))
         self.kernel_size = conv_utils.normalize_tuple(
             kernel_size, rank, 'kernel_size')
         self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
@@ -275,22 +288,41 @@ class NACUnit(Layer):
             bias_initializer = None
             bias_regularizer = None
             bias_constraint = None
-        self.layer_conv = Conv(rank = self.rank,
-                          filters = self.filters,
-                          kernel_size = self.kernel_size,
-                          strides = self.strides,
-                          padding = self.padding,
-                          data_format = self.data_format,
-                          dilation_rate = self.dilation_rate,
-                          activation = None,
-                          use_bias = self._use_bias,
-                          bias_initializer = bias_initializer,
-                          bias_regularizer = bias_regularizer,
-                          bias_constraint = bias_constraint,
-                          kernel_initializer = self.kernel_initializer,
-                          kernel_regularizer = self.kernel_regularizer,
-                          kernel_constraint = self.kernel_constraint,
-                          trainable=self.trainable)
+        if (self.lgroups is not None) and (self.lgroups > 1):
+            self.layer_conv = _GroupConv(rank=self.rank,
+                                         lgroups=self.lgroups,
+                                         lfilters=self.filters // self.lfilters,
+                                         kernel_size=self.kernel_size,
+                                         strides=self.strides,
+                                         padding=self.padding,
+                                         data_format=self.data_format,
+                                         dilation_rate=self.dilation_rate,
+                                         activation=None,
+                                         use_bias=self.use_bias,
+                                         bias_initializer=bias_initializer,
+                                         bias_regularizer=bias_regularizer,
+                                         bias_constraint=bias_constraint,
+                                         kernel_initializer=self.kernel_initializer,
+                                         kernel_regularizer=self.kernel_regularizer,
+                                         kernel_constraint=self.kernel_constraint,
+                                         trainable=self.trainable)
+        else:
+            self.layer_conv = Conv(rank = self.rank,
+                                   filters = self.filters,
+                                   kernel_size = self.kernel_size,
+                                   strides = self.strides,
+                                   padding = self.padding,
+                                   data_format = self.data_format,
+                                   dilation_rate = self.dilation_rate,
+                                   activation = None,
+                                   use_bias = self._use_bias,
+                                   bias_initializer = bias_initializer,
+                                   bias_regularizer = bias_regularizer,
+                                   bias_constraint = bias_constraint,
+                                   kernel_initializer = self.kernel_initializer,
+                                   kernel_regularizer = self.kernel_regularizer,
+                                   kernel_constraint = self.kernel_constraint,
+                                   trainable=self.trainable)
         self.layer_conv.build(next_shape)
         if compat.COMPATIBLE_MODE: # for compatibility
             self._trainable_weights.extend(self.layer_conv._trainable_weights)
@@ -321,6 +353,7 @@ class NACUnit(Layer):
             'filters': self.filters,
             'kernel_size': self.kernel_size,
             'strides': self.strides,
+            'lgroups': self.lgroups,
             'padding': self.padding,
             'data_format': self.data_format,
             'dilation_rate': self.dilation_rate,
@@ -370,6 +403,10 @@ class NACUnitTranspose(Layer):
             specifying the stride length of the convolution.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
+        lgroups: Latent group number of group convolution. Only if set, use group
+            convolution. The latent filter number of group convolution would
+            be inferred by lfilters = filters // lgroups. Hence, filters should
+            be a multiple of lgroups.
         padding: One of `"valid"`,  `"same"`.
         output_mshape: (Only avaliable for new-style API) An integer or tuple/list
             of the desired output shape. When setting this option, `output_padding`
@@ -448,6 +485,7 @@ class NACUnitTranspose(Layer):
                  filters,
                  kernel_size,
                  modenew=None,
+                 lgroups=None,
                  strides=1,
                  padding='valid',
                  output_mshape=None,
@@ -485,6 +523,12 @@ class NACUnitTranspose(Layer):
         else:
             self.modenew = _get_macro()
         self.filters = filters
+        self.lgroups = lgroups
+        if (lgroups is not None) and (lgroups > 1):
+            if not self.modenew:
+                raise ValueError('Transposed group convolution does not support old API, please set modenew=True or configure the macro.')
+            if filters % lgroups != 0:
+                raise ValueError('To grouplize the output channels, the output channel number should be a multiple of group number (N*{0}), but given {1}'.format(self.lgroups, self.filters))
         self.kernel_size = conv_utils.normalize_tuple(
             kernel_size, rank, 'kernel_size')
         self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
@@ -695,22 +739,41 @@ class NACUnitTranspose(Layer):
                     self.layer_padding = None
             else:
                 raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
-            self.layer_conv = Conv(rank = self.rank,
-                              filters = self.filters,
-                              kernel_size = self.kernel_size,
-                              strides = 1,
-                              padding = self.padding,
-                              data_format = self.data_format,
-                              dilation_rate = self.dilation_rate,
-                              activation = None,
-                              use_bias = self._use_bias,
-                              bias_initializer = bias_initializer,
-                              bias_regularizer = bias_regularizer,
-                              bias_constraint = bias_constraint,
-                              kernel_initializer = self.kernel_initializer,
-                              kernel_regularizer = self.kernel_regularizer,
-                              kernel_constraint = self.kernel_constraint,
-                              trainable=self.trainable)
+            if (self.lgroups is not None) and (self.lgroups > 1):
+                self.layer_conv = _GroupConv(rank=self.rank,
+                                             lgroups=self.lgroups,
+                                             lfilters=self.filters // self.lfilters,
+                                             kernel_size=self.kernel_size,
+                                             strides=1,
+                                             padding=self.padding,
+                                             data_format=self.data_format,
+                                             dilation_rate=self.dilation_rate,
+                                             activation=None,
+                                             use_bias=self.use_bias,
+                                             bias_initializer=bias_initializer,
+                                             bias_regularizer=bias_regularizer,
+                                             bias_constraint=bias_constraint,
+                                             kernel_initializer=self.kernel_initializer,
+                                             kernel_regularizer=self.kernel_regularizer,
+                                             kernel_constraint=self.kernel_constraint,
+                                             trainable=self.trainable)
+            else:
+                self.layer_conv = Conv(rank = self.rank,
+                                       filters = self.filters,
+                                       kernel_size = self.kernel_size,
+                                       strides = 1,
+                                       padding = self.padding,
+                                       data_format = self.data_format,
+                                       dilation_rate = self.dilation_rate,
+                                       activation = None,
+                                       use_bias = self._use_bias,
+                                       bias_initializer = bias_initializer,
+                                       bias_regularizer = bias_regularizer,
+                                       bias_constraint = bias_constraint,
+                                       kernel_initializer = self.kernel_initializer,
+                                       kernel_regularizer = self.kernel_regularizer,
+                                       kernel_constraint = self.kernel_constraint,
+                                       trainable=self.trainable)
             self.layer_conv.build(next_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
                 self._trainable_weights.extend(self.layer_conv._trainable_weights)
@@ -847,6 +910,7 @@ class NACUnitTranspose(Layer):
             'filters': self.filters,
             'kernel_size': self.kernel_size,
             'strides': self.strides,
+            'lgroups': self.lgroups,
             'padding': self.padding,
             'output_mshape': self.output_mshape,
             'output_padding': self.output_padding,

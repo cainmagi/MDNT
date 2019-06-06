@@ -17,8 +17,8 @@ Now we have such progress on the semi-product:
     - [x] Tied dense layer for the symmetric autoencoder.
     - [x] Extened normalization layers.
     - [x] Group convolutional layers.
-    - [x] Modern convolutional layers.
-    - [x] Modern transposed convolutional layers.
+    - [x] Modern convolutional layers (support group convolution).
+    - [x] Modern transposed convolutional layers (support group convolution).
     - [ ] Tied and modern transposed convolutional layers for the symmetric autoencoder.
     - [x] Residual layers (or blocks) and their transposed versions.
     - [x] ResNeXt layers (or blocks) and their transposed versions.
@@ -49,6 +49,12 @@ Now we have such progress on the semi-product:
 Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
+
+### 0.45 @ 06/06/2019
+
+1. Enable Modern convolutional layers to work with group convolution.
+2. Reduce the memory consumption for network construction when using ResNeXt layers in case of out of memory (OOM) problems.
+3. Fix a minor bug for group convolution.
 
 ### 0.42 @ 06/05/2019
 

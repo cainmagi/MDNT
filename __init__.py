@@ -14,6 +14,14 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.45 # 2019/6/6
+# Comments:
+# 1. Enable Modern convolutional layers to work with group
+#    convolution.
+# 2. Reduce the memory consumption for network construction
+#    when using ResNeXt layers in case of out of memory (OOM)
+#    problems.
+# 3. Fix a minor bug for group convolution.
 # Version: 0.42 # 2019/6/5
 # Comments:
 # 1. Add GroupConv1D, GroupConv2D, GroupConv3D in .layers.
@@ -77,7 +85,7 @@ from . import optimizers
 from . import layers
 from . import data
 
-__version__ = '0.42'
+__version__ = '0.45'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

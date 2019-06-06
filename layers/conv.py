@@ -25,6 +25,10 @@
 # Here we also implement some tied convolutional layers, note
 # that it is necessary to set name scope if using them in multi-
 # models.
+# Version: 0.5 # 2019/6/6
+# Comments:
+#   Enable the advanced convolutional layers (AConv) to support
+#   group convolution.
 # Version: 0.4 # 2019/6/5
 # Comments:
 #   Add group convolutional layers (`GroupConv`).
@@ -228,9 +232,9 @@ class _GroupConv(Layer):
             op_padding = self.padding
         # Create conv. op groups.
         if self.data_format == 'channels_first':
-            group_input_shape = tensor_shape.TensorShape([input_shape[0], self.group_input_dim, *input_shape[1:]])
+            group_input_shape = tensor_shape.TensorShape([input_shape[0], self.group_input_dim, *input_shape[2:]])
         else:
-            group_input_shape = tensor_shape.TensorShape([input_shape[0], *input_shape[1:], self.group_input_dim])
+            group_input_shape = tensor_shape.TensorShape([*input_shape[:-1], self.group_input_dim])
         group_kernel_shape = tensor_shape.TensorShape([*kernel_shape[:-1], self.lfilters])
         self._convolution_op = nn_ops.Convolution(
                 group_input_shape,
@@ -691,6 +695,10 @@ class _AConv(Layer):
             specifying the stride length of the convolution.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
+        lgroups: Latent group number of group convolution. Only if set, use group
+            convolution. The latent filter number of group convolution would
+            be inferred by lfilters = filters // lgroups. Hence, filters should
+            be a multiple of lgroups.
         padding: One of `"valid"`,  `"same"`, or `"causal"` (case-insensitive).
         data_format: A string, one of `channels_last` (default) or `channels_first`.
             The ordering of the dimensions in the inputs.
@@ -748,6 +756,7 @@ class _AConv(Layer):
                  filters,
                  kernel_size,
                  strides=1,
+                 lgroups=None,
                  padding='valid',
                  data_format=None,
                  dilation_rate=1,
@@ -770,12 +779,16 @@ class _AConv(Layer):
                  _high_activation=None,
                  **kwargs):
         if 'input_shape' not in kwargs and 'input_dim' in kwargs:
-          kwargs['input_shape'] = (kwargs.pop('input_dim'),)
+            kwargs['input_shape'] = (kwargs.pop('input_dim'),)
 
         super(_AConv, self).__init__(trainable=trainable, name=name, activity_regularizer=regularizers.get(activity_regularizer), **kwargs)
         # Inherit from keras.layers._Conv
         self.rank = rank
         self.filters = filters
+        self.lgroups = lgroups
+        if (lgroups is not None) and (lgroups > 1):
+            if filters % lgroups != 0:
+                raise ValueError('To grouplize the output channels, the output channel number should be a multiple of group number (N*{0}), but given {1}'.format(self.lgroups, self.filters))
         self.kernel_size = conv_utils.normalize_tuple(
             kernel_size, rank, 'kernel_size')
         self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
@@ -840,52 +853,71 @@ class _AConv(Layer):
             bias_initializer = None
             bias_regularizer = None
             bias_constraint = None
-        self.layer_conv = Conv(rank = self.rank,
-                          filters = self.filters,
-                          kernel_size = self.kernel_size,
-                          strides = self.strides,
-                          padding = self.padding,
-                          data_format = self.data_format,
-                          dilation_rate = self.dilation_rate,
-                          activation = None,
-                          use_bias = self.use_bias,
-                          bias_initializer = bias_initializer,
-                          bias_regularizer = bias_regularizer,
-                          bias_constraint = bias_constraint,
-                          kernel_initializer = self.kernel_initializer,
-                          kernel_regularizer = self.kernel_regularizer,
-                          kernel_constraint = self.kernel_constraint,
-                          trainable=self.trainable)
+        if (self.lgroups is not None) and (self.lgroups > 1):
+            self.layer_conv = _GroupConv(rank=self.rank,
+                                         lgroups=self.lgroups,
+                                         lfilters=self.filters // self.lfilters,
+                                         kernel_size=self.kernel_size,
+                                         strides=self.strides,
+                                         padding=self.padding,
+                                         data_format=self.data_format,
+                                         dilation_rate=self.dilation_rate,
+                                         activation=None,
+                                         use_bias=self.use_bias,
+                                         bias_initializer=bias_initializer,
+                                         bias_regularizer=bias_regularizer,
+                                         bias_constraint=bias_constraint,
+                                         kernel_initializer=self.kernel_initializer,
+                                         kernel_regularizer=self.kernel_regularizer,
+                                         kernel_constraint=self.kernel_constraint,
+                                         trainable=self.trainable)
+        else:
+            self.layer_conv = Conv(rank=self.rank,
+                                   filters=self.filters,
+                                   kernel_size=self.kernel_size,
+                                   strides=self.strides,
+                                   padding=self.padding,
+                                   data_format=self.data_format,
+                                   dilation_rate=self.dilation_rate,
+                                   activation=None,
+                                   use_bias=self.use_bias,
+                                   bias_initializer=bias_initializer,
+                                   bias_regularizer=bias_regularizer,
+                                   bias_constraint=bias_constraint,
+                                   kernel_initializer=self.kernel_initializer,
+                                   kernel_regularizer=self.kernel_regularizer,
+                                   kernel_constraint=self.kernel_constraint,
+                                   trainable=self.trainable)
         self.layer_conv.build(input_shape)
         if compat.COMPATIBLE_MODE: # for compatibility
             self._trainable_weights.extend(self.layer_conv._trainable_weights)
         next_shape = self.layer_conv.compute_output_shape(input_shape)
         if self.normalization and (not self.use_bias):
             if self.normalization.casefold() == 'batch':
-                self.layer_norm = BatchNormalization(gamma_initializer = self.gamma_initializer,
-                                                     gamma_regularizer = self.gamma_regularizer,
-                                                     gamma_constraint = self.gamma_constraint,
-                                                     beta_initializer = self.beta_initializer,
-                                                     beta_regularizer = self.beta_regularizer,
-                                                     beta_constraint = self.beta_constraint,
+                self.layer_norm = BatchNormalization(gamma_initializer=self.gamma_initializer,
+                                                     gamma_regularizer=self.gamma_regularizer,
+                                                     gamma_constraint=self.gamma_constraint,
+                                                     beta_initializer=self.beta_initializer,
+                                                     beta_regularizer=self.beta_regularizer,
+                                                     beta_constraint=self.beta_constraint,
                                                      trainable=self.trainable)
             elif self.normalization.casefold() == 'inst':
                 self.layer_norm = InstanceNormalization(axis=-1,
-                                                     gamma_initializer = self.gamma_initializer,
-                                                     gamma_regularizer = self.gamma_regularizer,
-                                                     gamma_constraint = self.gamma_constraint,
-                                                     beta_initializer = self.beta_initializer,
-                                                     beta_regularizer = self.beta_regularizer,
-                                                     beta_constraint = self.beta_constraint,
-                                                     trainable=self.trainable)
+                                                        gamma_initializer=self.gamma_initializer,
+                                                        gamma_regularizer=self.gamma_regularizer,
+                                                        gamma_constraint=self.gamma_constraint,
+                                                        beta_initializer=self.beta_initializer,
+                                                        beta_regularizer=self.beta_regularizer,
+                                                        beta_constraint=self.beta_constraint,
+                                                        trainable=self.trainable)
             elif self.normalization.casefold() == 'group':
                 self.layer_norm = GroupNormalization(axis=-1, groups=self.groups,
-                                                     gamma_initializer = self.gamma_initializer,
-                                                     gamma_regularizer = self.gamma_regularizer,
-                                                     gamma_constraint = self.gamma_constraint,
-                                                     beta_initializer = self.beta_initializer,
-                                                     beta_regularizer = self.beta_regularizer,
-                                                     beta_constraint = self.beta_constraint,
+                                                     gamma_initializer=self.gamma_initializer,
+                                                     gamma_regularizer=self.gamma_regularizer,
+                                                     gamma_constraint=self.gamma_constraint,
+                                                     beta_initializer=self.beta_initializer,
+                                                     beta_regularizer=self.beta_regularizer,
+                                                     beta_constraint=self.beta_constraint,
                                                      trainable=self.trainable)
             self.layer_norm.build(next_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
@@ -920,12 +952,13 @@ class _AConv(Layer):
         if self.high_activation in ('prelu', 'lrelu'):
             next_shape = self.layer_actv.compute_output_shape(next_shape)
         return next_shape
-    
+
     def get_config(self):
         config = {
             'filters': self.filters,
             'kernel_size': self.kernel_size,
             'strides': self.strides,
+            'lgroups': self.lgroups,
             'padding': self.padding,
             'data_format': self.data_format,
             'dilation_rate': self.dilation_rate,
@@ -947,7 +980,7 @@ class _AConv(Layer):
         }
         base_config = super(_AConv, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
-        
+
 class AConv1D(_AConv):
     """1D convolution layer (e.g. temporal convolution).
     This layer creates a convolution kernel that is convolved
@@ -975,6 +1008,10 @@ class AConv1D(_AConv):
             specifying the stride length of the convolution.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
+        lgroups: Latent group number of group convolution. Only if set, use group
+            convolution. The latent filter number of group convolution would
+            be inferred by lfilters = filters // lgroups. Hence, filters should
+            be a multiple of lgroups.
         padding: One of `"valid"`, `"causal"` or `"same"` (case-insensitive).
             `"causal"` results in causal (dilated) convolutions, e.g. output[t]
             does not depend on input[t+1:]. Useful when modeling temporal data
@@ -1032,6 +1069,7 @@ class AConv1D(_AConv):
                filters,
                kernel_size,
                strides=1,
+               lgroups=None,
                padding='valid',
                data_format='channels_last',
                dilation_rate=1,
@@ -1055,6 +1093,7 @@ class AConv1D(_AConv):
             filters=filters,
             kernel_size=kernel_size,
             strides=strides,
+            lgroups=lgroups,
             padding=padding,
             data_format=data_format,
             dilation_rate=dilation_rate,
@@ -1109,6 +1148,10 @@ class AConv2D(_AConv):
             all spatial dimensions.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
+        lgroups: Latent group number of group convolution. Only if set, use group
+            convolution. The latent filter number of group convolution would
+            be inferred by lfilters = filters // lgroups. Hence, filters should
+            be a multiple of lgroups.
         padding: one of `"valid"` or `"same"` (case-insensitive).
         data_format: A string,
             one of `channels_last` (default) or `channels_first`.
@@ -1177,6 +1220,7 @@ class AConv2D(_AConv):
                filters,
                kernel_size,
                strides=(1, 1),
+               lgroups=None,
                padding='valid',
                data_format='channels_last',
                dilation_rate=(1, 1),
@@ -1200,6 +1244,7 @@ class AConv2D(_AConv):
             filters=filters,
             kernel_size=kernel_size,
             strides=strides,
+            lgroups=lgroups,
             padding=padding,
             data_format=data_format,
             dilation_rate=dilation_rate,
@@ -1251,6 +1296,10 @@ class AConv3D(_AConv):
             all spatial dimensions.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
+        lgroups: Latent group number of group convolution. Only if set, use group
+            convolution. The latent filter number of group convolution would
+            be inferred by lfilters = filters // lgroups. Hence, filters should
+            be a multiple of lgroups.
         padding: one of `"valid"` or `"same"` (case-insensitive).
         data_format: A string,
             one of `channels_last` (default) or `channels_first`.
@@ -1324,6 +1373,7 @@ class AConv3D(_AConv):
                filters,
                kernel_size,
                strides=(1, 1, 1),
+               lgroups=None,
                padding='valid',
                data_format='channels_last',
                dilation_rate=(1, 1, 1),
@@ -1347,6 +1397,7 @@ class AConv3D(_AConv):
             filters=filters,
             kernel_size=kernel_size,
             strides=strides,
+            lgroups=lgroups,
             padding=padding,
             data_format=data_format,
             dilation_rate=dilation_rate,
@@ -1390,6 +1441,10 @@ class _AConvTranspose(Layer):
             specifying the stride length of the convolution.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
+        lgroups: Latent group number of group convolution. Only if set, use group
+            convolution. The latent filter number of group convolution would
+            be inferred by lfilters = filters // lgroups. Hence, filters should
+            be a multiple of lgroups.
         padding: One of `"valid"`,  `"same"`.
         output_mshape: (Only avaliable for new-style API) An integer or tuple/list
             of the desired output shape. When setting this option, `output_padding`
@@ -1473,6 +1528,7 @@ class _AConvTranspose(Layer):
                  filters,
                  kernel_size,
                  modenew=None,
+                 lgroups=None,
                  strides=1,
                  padding='valid',
                  output_mshape=None,
@@ -1509,6 +1565,12 @@ class _AConvTranspose(Layer):
         else:
             self.modenew = _get_macro()
         self.filters = filters
+        self.lgroups = lgroups
+        if (lgroups is not None) and (lgroups > 1):
+            if not self.modenew:
+                raise ValueError('Transposed group convolution does not support old API, please set modenew=True or configure the macro.')
+            if filters % lgroups != 0:
+                raise ValueError('To grouplize the output channels, the output channel number should be a multiple of group number (N*{0}), but given {1}'.format(self.lgroups, self.filters))
         self.kernel_size = conv_utils.normalize_tuple(
             kernel_size, rank, 'kernel_size')
         self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
@@ -1672,22 +1734,41 @@ class _AConvTranspose(Layer):
                     self.layer_padding = None
             else:
                 raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
-            self.layer_conv = Conv(rank = self.rank,
-                              filters = self.filters,
-                              kernel_size = self.kernel_size,
-                              strides = 1,
-                              padding = self.padding,
-                              data_format = self.data_format,
-                              dilation_rate = self.dilation_rate,
-                              activation = None,
-                              use_bias = self.use_bias,
-                              bias_initializer = bias_initializer,
-                              bias_regularizer = bias_regularizer,
-                              bias_constraint = bias_constraint,
-                              kernel_initializer = self.kernel_initializer,
-                              kernel_regularizer = self.kernel_regularizer,
-                              kernel_constraint = self.kernel_constraint,
-                              trainable=self.trainable)
+            if (self.lgroups is not None) and (self.lgroups > 1):
+                self.layer_conv = _GroupConv(rank=self.rank,
+                                             lgroups=self.lgroups,
+                                             lfilters=self.filters // self.lfilters,
+                                             kernel_size=self.kernel_size,
+                                             strides=1,
+                                             padding=self.padding,
+                                             data_format=self.data_format,
+                                             dilation_rate=self.dilation_rate,
+                                             activation=None,
+                                             use_bias=self.use_bias,
+                                             bias_initializer=bias_initializer,
+                                             bias_regularizer=bias_regularizer,
+                                             bias_constraint=bias_constraint,
+                                             kernel_initializer=self.kernel_initializer,
+                                             kernel_regularizer=self.kernel_regularizer,
+                                             kernel_constraint=self.kernel_constraint,
+                                             trainable=self.trainable)
+            else:
+                self.layer_conv = Conv(rank=self.rank,
+                                       filters=self.filters,
+                                       kernel_size=self.kernel_size,
+                                       strides=1,
+                                       padding=self.padding,
+                                       data_format=self.data_format,
+                                       dilation_rate=self.dilation_rate,
+                                       activation=None,
+                                       use_bias=self.use_bias,
+                                       bias_initializer=bias_initializer,
+                                       bias_regularizer=bias_regularizer,
+                                       bias_constraint=bias_constraint,
+                                       kernel_initializer=self.kernel_initializer,
+                                       kernel_regularizer=self.kernel_regularizer,
+                                       kernel_constraint=self.kernel_constraint,
+                                       trainable=self.trainable)
             self.layer_conv.build(next_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
                 self._trainable_weights.extend(self.layer_conv._trainable_weights)
@@ -1862,6 +1943,7 @@ class _AConvTranspose(Layer):
             'filters': self.filters,
             'kernel_size': self.kernel_size,
             'strides': self.strides,
+            'lgroups': self.lgroups,
             'padding': self.padding,
             'output_mshape': self.output_mshape,
             'output_padding': self.output_padding,
@@ -1914,6 +1996,10 @@ class AConv1DTranspose(_AConvTranspose):
             specifying the stride length of the convolution.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
+        lgroups: Latent group number of group convolution. Only if set, use group
+            convolution. The latent filter number of group convolution would
+            be inferred by lfilters = filters // lgroups. Hence, filters should
+            be a multiple of lgroups.
         padding: One of `"valid"`,  `"same"`.
         output_mshape: (Only avaliable for new-style API) An integer or tuple/list
             of the desired output shape. When setting this option, `output_padding`
@@ -1995,6 +2081,7 @@ class AConv1DTranspose(_AConvTranspose):
     def __init__(self, filters,
                  kernel_size,
                  strides=1,
+                 lgroups=None,
                  padding='valid',
                  output_mshape=None,
                  output_padding=None,
@@ -2021,6 +2108,7 @@ class AConv1DTranspose(_AConvTranspose):
             filters=filters,
             kernel_size=kernel_size,
             strides=strides,
+            lgroups=lgroups,
             padding=padding,
             output_mshape=output_mshape,
             output_padding=output_padding,
@@ -2074,6 +2162,10 @@ class AConv2DTranspose(_AConvTranspose):
             all spatial dimensions.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
+        lgroups: Latent group number of group convolution. Only if set, use group
+            convolution. The latent filter number of group convolution would
+            be inferred by lfilters = filters // lgroups. Hence, filters should
+            be a multiple of lgroups.
         padding: one of `"valid"` or `"same"` (case-insensitive).
         output_mshape: (Only avaliable for new-style API) An integer or tuple/list
             of the desired output shape. When setting this option, `output_padding`
@@ -2172,6 +2264,7 @@ class AConv2DTranspose(_AConvTranspose):
     def __init__(self, filters,
                  kernel_size,
                  strides=(1, 1),
+                 lgroups=None,
                  padding='valid',
                  output_mshape=None,
                  output_padding=None,
@@ -2198,6 +2291,7 @@ class AConv2DTranspose(_AConvTranspose):
             filters=filters,
             kernel_size=kernel_size,
             strides=strides,
+            lgroups=lgroups,
             padding=padding,
             output_mshape=output_mshape,
             output_padding=output_padding,
@@ -2252,6 +2346,10 @@ class AConv3DTranspose(_AConvTranspose):
             all spatial dimensions.
             Specifying any stride value != 1 is incompatible with specifying
             any `dilation_rate` value != 1.
+        lgroups: Latent group number of group convolution. Only if set, use group
+            convolution. The latent filter number of group convolution would
+            be inferred by lfilters = filters // lgroups. Hence, filters should
+            be a multiple of lgroups.
         padding: one of `"valid"` or `"same"` (case-insensitive).
         output_mshape: (Only avaliable for new-style API) An integer or tuple/list
             of the desired output shape. When setting this option, `output_padding`
@@ -2352,6 +2450,7 @@ class AConv3DTranspose(_AConvTranspose):
     def __init__(self, filters,
                  kernel_size,
                  strides=(1, 1, 1),
+                 lgroups=None,
                  padding='valid',
                  output_mshape=None,
                  output_padding=None,
@@ -2378,6 +2477,7 @@ class AConv3DTranspose(_AConvTranspose):
             filters=filters,
             kernel_size=kernel_size,
             strides=strides,
+            lgroups=lgroups,
             padding=padding,
             output_mshape=output_mshape,
             output_padding=output_padding,

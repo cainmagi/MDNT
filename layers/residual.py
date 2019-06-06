@@ -49,6 +49,10 @@
 #   https://arxiv.org/abs/1611.05431
 #
 # layers has been modified according to the residual-v2 theory.
+# Version: 0.35 # 2019/6/6
+# Comments:
+#   Fix memory consumption problem of ResNeXt layers by using
+#   group convolution.
 # Version: 0.30 # 2019/6/5
 # Comments:
 #   Adding ResNeXt (residual-v3) layers to this module.
@@ -1975,6 +1979,8 @@ class _Resnext(Layer):
                 self.lfilters = max( 1, wholeLfilters // self.lgroups )
             elif self.lgroups is None:
                 self.lgroups = max( 1, wholeLfilters // self.lfilters )
+        else:
+            wholeLfilters = self.lgroups * self.lfilters
         last_use_bias = True
         if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
             self.layer_branch_left = None
@@ -2009,78 +2015,68 @@ class _Resnext(Layer):
                 self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
             left_shape = self.layer_branch_left.compute_output_shape(input_shape)
         # The right branch is divided into many groups
-        layer_middle_shape_list = []
-        for G in range(self.lgroups):
-            layer_first = NACUnit(rank = self.rank,
-                            filters = self.lfilters,
-                            kernel_size = 1,
-                            strides = self.strides,
-                            padding = 'same',
-                            data_format = self.data_format,
-                            dilation_rate = 1,
-                            kernel_initializer=self.kernel_initializer,
-                            kernel_regularizer=self.kernel_regularizer,
-                            kernel_constraint=self.kernel_constraint,
-                            normalization=self.normalization,
-                            beta_initializer=self.beta_initializer,
-                            gamma_initializer=self.gamma_initializer,
-                            beta_regularizer=self.beta_regularizer,
-                            gamma_regularizer=self.gamma_regularizer,
-                            beta_constraint=self.beta_constraint,
-                            gamma_constraint=self.gamma_constraint,
-                            groups=self.groups,
-                            activation=self.activation,
-                            activity_config=self.activity_config,
-                            activity_regularizer=self.sub_activity_regularizer,
-                            _high_activation=self.high_activation,
-                            trainable=self.trainable)
-            layer_first.build(input_shape)
+        self.layer_first = NACUnit(rank = self.rank,
+                        filters = wholeLfilters,
+                        kernel_size = 1,
+                        strides = self.strides,
+                        padding = 'same',
+                        data_format = self.data_format,
+                        dilation_rate = 1,
+                        kernel_initializer=self.kernel_initializer,
+                        kernel_regularizer=self.kernel_regularizer,
+                        kernel_constraint=self.kernel_constraint,
+                        normalization=self.normalization,
+                        beta_initializer=self.beta_initializer,
+                        gamma_initializer=self.gamma_initializer,
+                        beta_regularizer=self.beta_regularizer,
+                        gamma_regularizer=self.gamma_regularizer,
+                        beta_constraint=self.beta_constraint,
+                        gamma_constraint=self.gamma_constraint,
+                        groups=self.groups,
+                        activation=self.activation,
+                        activity_config=self.activity_config,
+                        activity_regularizer=self.sub_activity_regularizer,
+                        _high_activation=self.high_activation,
+                        trainable=self.trainable)
+        self.layer_first.build(input_shape)
+        if compat.COMPATIBLE_MODE: # for compatibility
+            self._trainable_weights.extend(self.layer_first._trainable_weights)
+        right_shape = self.layer_first.compute_output_shape(input_shape)
+        # Repeat blocks by depth number
+        for i in range(self.depth):
+            if i == 0:
+                sub_dilation_rate = self.dilation_rate
+            else:
+                sub_dilation_rate = 1
+            layer_middle = NACUnit(rank = self.rank,
+                                   filters = wholeLfilters,
+                                   lgroups = self.lgroups,
+                                   kernel_size = self.kernel_size,
+                                   strides = 1,
+                                   padding = 'same',
+                                   data_format = self.data_format,
+                                   dilation_rate = sub_dilation_rate,
+                                   kernel_initializer=self.kernel_initializer,
+                                   kernel_regularizer=self.kernel_regularizer,
+                                   kernel_constraint=self.kernel_constraint,
+                                   normalization=self.normalization,
+                                   beta_initializer=self.beta_initializer,
+                                   gamma_initializer=self.gamma_initializer,
+                                   beta_regularizer=self.beta_regularizer,
+                                   gamma_regularizer=self.gamma_regularizer,
+                                   beta_constraint=self.beta_constraint,
+                                   gamma_constraint=self.gamma_constraint,
+                                   groups=self.groups,
+                                   activation=self.activation,
+                                   activity_config=self.activity_config,
+                                   activity_regularizer=self.sub_activity_regularizer,
+                                   _high_activation=self.high_activation,
+                                   trainable=self.trainable)
+            layer_middle.build(right_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_first._trainable_weights)
-            right_shape = layer_first.compute_output_shape(input_shape)
-            setattr(self, 'layer_G{0:02d}_00'.format(G+1), layer_first)
-            # Repeat blocks by depth number
-            for i in range(self.depth):
-                if i == 0:
-                    sub_dilation_rate = self.dilation_rate
-                else:
-                    sub_dilation_rate = 1
-                layer_middle = NACUnit(rank = self.rank,
-                            filters = self.lfilters,
-                            kernel_size = self.kernel_size,
-                            strides = 1,
-                            padding = 'same',
-                            data_format = self.data_format,
-                            dilation_rate = sub_dilation_rate,
-                            kernel_initializer=self.kernel_initializer,
-                            kernel_regularizer=self.kernel_regularizer,
-                            kernel_constraint=self.kernel_constraint,
-                            normalization=self.normalization,
-                            beta_initializer=self.beta_initializer,
-                            gamma_initializer=self.gamma_initializer,
-                            beta_regularizer=self.beta_regularizer,
-                            gamma_regularizer=self.gamma_regularizer,
-                            beta_constraint=self.beta_constraint,
-                            gamma_constraint=self.gamma_constraint,
-                            groups=self.groups,
-                            activation=self.activation,
-                            activity_config=self.activity_config,
-                            activity_regularizer=self.sub_activity_regularizer,
-                            _high_activation=self.high_activation,
-                            trainable=self.trainable)
-                layer_middle.build(right_shape)
-                if compat.COMPATIBLE_MODE: # for compatibility
-                    self._trainable_weights.extend(layer_middle._trainable_weights)
-                right_shape = layer_middle.compute_output_shape(right_shape)
-                setattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1), layer_middle)
-                if i == self.depth-1:
-                    layer_middle_shape_list.append(right_shape)
-        if self.data_format == 'channels_first':
-            self.layer_concat = Concatenate(axis=1)
-        else:
-            self.layer_concat = Concatenate()
-        self.layer_concat.build(layer_middle_shape_list)
-        right_shape = self.layer_concat.compute_output_shape(layer_middle_shape_list)
+                self._trainable_weights.extend(layer_middle._trainable_weights)
+            right_shape = layer_middle.compute_output_shape(right_shape)
+            setattr(self, 'layer_middle_{0:02d}'.format(i+1), layer_middle)
         self.layer_last = NACUnit(rank = self.rank,
                           filters = self.ofilters,
                           kernel_size = 1,
@@ -2118,16 +2114,10 @@ class _Resnext(Layer):
             branch_left = self.layer_branch_left(inputs)
         else:
             branch_left = inputs
-        layer_middle_list = []
-        for G in range(self.lgroups):
-            layer_first = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
-            branch_right = layer_first(inputs)
-            for i in range(self.depth):
-                layer_middle = getattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1))
-                branch_right = layer_middle(branch_right)
-                if i == self.depth-1:
-                    layer_middle_list.append(branch_right)
-        branch_right = self.layer_concat(layer_middle_list)
+        branch_right = self.layer_first(inputs)
+        for i in range(self.depth):
+            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i+1))
+            branch_right = layer_middle(branch_right)
         branch_right = self.layer_last(branch_right)
         outputs = self.layer_merge([branch_left, branch_right])
         return outputs
@@ -2137,16 +2127,10 @@ class _Resnext(Layer):
             branch_left_shape = self.layer_branch_left.compute_output_shape(input_shape)
         else:
             branch_left_shape = input_shape
-        layer_middle_shape_list = []
-        for G in range(self.lgroups):
-            layer_first = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
-            branch_right_shape = layer_first.compute_output_shape(input_shape)
-            for i in range(self.depth):
-                layer_middle = getattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1))
-                branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
-                if i == self.depth-1:
-                    layer_middle_shape_list.append(branch_right_shape)
-        branch_right_shape = self.layer_concat.compute_output_shape(layer_middle_shape_list)
+        branch_right_shape = self.layer_first.compute_output_shape(input_shape)
+        for i in range(self.depth):
+            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i+1))
+            branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
         branch_right_shape = self.layer_last.compute_output_shape(branch_right_shape)
         next_shape = self.layer_merge.compute_output_shape([branch_left_shape, branch_right_shape])
         return next_shape
@@ -2787,6 +2771,8 @@ class _ResnextTranspose(Layer):
                 self.lfilters = max( 1, wholeLfilters // self.lgroups )
             elif self.lgroups is None:
                 self.lgroups = max( 1, wholeLfilters // self.lfilters )
+        else:
+            wholeLfilters = self.lgroups * self.lfilters
         # If setting output_mshape, need to infer output_padding & output_cropping
         if self.output_mshape is not None:
             if not isinstance(self.output_mshape, (list, tuple)):
@@ -2896,78 +2882,68 @@ class _ResnextTranspose(Layer):
                 self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
             left_shape = self.layer_branch_left.compute_output_shape(next_shape)
         # The right branch is divided into many groups
-        layer_middle_shape_list = []
-        for G in range(self.lgroups):
-            layer_first = NACUnit(rank = self.rank,
-                            filters = self.lfilters,
-                            kernel_size = 1,
-                            strides = 1,
-                            padding = 'same',
-                            data_format = self.data_format,
-                            dilation_rate = 1,
-                            kernel_initializer=self.kernel_initializer,
-                            kernel_regularizer=self.kernel_regularizer,
-                            kernel_constraint=self.kernel_constraint,
-                            normalization=self.normalization,
-                            beta_initializer=self.beta_initializer,
-                            gamma_initializer=self.gamma_initializer,
-                            beta_regularizer=self.beta_regularizer,
-                            gamma_regularizer=self.gamma_regularizer,
-                            beta_constraint=self.beta_constraint,
-                            gamma_constraint=self.gamma_constraint,
-                            groups=self.groups,
-                            activation=self.activation,
-                            activity_config=self.activity_config,
-                            activity_regularizer=self.sub_activity_regularizer,
-                            _high_activation=self.high_activation,
-                            trainable=self.trainable)
-            layer_first.build(next_shape)
+        self.layer_first = NACUnit(rank = self.rank,
+                        filters = wholeLfilters,
+                        kernel_size = 1,
+                        strides = 1,
+                        padding = 'same',
+                        data_format = self.data_format,
+                        dilation_rate = 1,
+                        kernel_initializer=self.kernel_initializer,
+                        kernel_regularizer=self.kernel_regularizer,
+                        kernel_constraint=self.kernel_constraint,
+                        normalization=self.normalization,
+                        beta_initializer=self.beta_initializer,
+                        gamma_initializer=self.gamma_initializer,
+                        beta_regularizer=self.beta_regularizer,
+                        gamma_regularizer=self.gamma_regularizer,
+                        beta_constraint=self.beta_constraint,
+                        gamma_constraint=self.gamma_constraint,
+                        groups=self.groups,
+                        activation=self.activation,
+                        activity_config=self.activity_config,
+                        activity_regularizer=self.sub_activity_regularizer,
+                        _high_activation=self.high_activation,
+                        trainable=self.trainable)
+        self.layer_first.build(next_shape)
+        if compat.COMPATIBLE_MODE: # for compatibility
+            self._trainable_weights.extend(self.layer_first._trainable_weights)
+        right_shape = self.layer_first.compute_output_shape(input_shape)
+        # Repeat blocks by depth number
+        for i in range(self.depth):
+            if i == 0:
+                sub_dilation_rate = self.dilation_rate
+            else:
+                sub_dilation_rate = 1
+            layer_middle = NACUnit(rank = self.rank,
+                                   filters = wholeLfilters,
+                                   lgroups = self.lgroups,
+                                   kernel_size = self.kernel_size,
+                                   strides = 1,
+                                   padding = 'same',
+                                   data_format = self.data_format,
+                                   dilation_rate = sub_dilation_rate,
+                                   kernel_initializer=self.kernel_initializer,
+                                   kernel_regularizer=self.kernel_regularizer,
+                                   kernel_constraint=self.kernel_constraint,
+                                   normalization=self.normalization,
+                                   beta_initializer=self.beta_initializer,
+                                   gamma_initializer=self.gamma_initializer,
+                                   beta_regularizer=self.beta_regularizer,
+                                   gamma_regularizer=self.gamma_regularizer,
+                                   beta_constraint=self.beta_constraint,
+                                   gamma_constraint=self.gamma_constraint,
+                                   groups=self.groups,
+                                   activation=self.activation,
+                                   activity_config=self.activity_config,
+                                   activity_regularizer=self.sub_activity_regularizer,
+                                   _high_activation=self.high_activation,
+                                   trainable=self.trainable)
+            layer_middle.build(right_shape)
             if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_first._trainable_weights)
-            right_shape = layer_first.compute_output_shape(next_shape)
-            setattr(self, 'layer_G{0:02d}_00'.format(G+1), layer_first)
-            # Repeat blocks by depth number
-            for i in range(self.depth):
-                if i == 0:
-                    sub_dilation_rate = self.dilation_rate
-                else:
-                    sub_dilation_rate = 1
-                layer_middle = NACUnit(rank = self.rank,
-                            filters = self.lfilters,
-                            kernel_size = self.kernel_size,
-                            strides = 1,
-                            padding = 'same',
-                            data_format = self.data_format,
-                            dilation_rate = sub_dilation_rate,
-                            kernel_initializer=self.kernel_initializer,
-                            kernel_regularizer=self.kernel_regularizer,
-                            kernel_constraint=self.kernel_constraint,
-                            normalization=self.normalization,
-                            beta_initializer=self.beta_initializer,
-                            gamma_initializer=self.gamma_initializer,
-                            beta_regularizer=self.beta_regularizer,
-                            gamma_regularizer=self.gamma_regularizer,
-                            beta_constraint=self.beta_constraint,
-                            gamma_constraint=self.gamma_constraint,
-                            groups=self.groups,
-                            activation=self.activation,
-                            activity_config=self.activity_config,
-                            activity_regularizer=self.sub_activity_regularizer,
-                            _high_activation=self.high_activation,
-                            trainable=self.trainable)
-                layer_middle.build(right_shape)
-                if compat.COMPATIBLE_MODE: # for compatibility
-                    self._trainable_weights.extend(layer_middle._trainable_weights)
-                right_shape = layer_middle.compute_output_shape(right_shape)
-                setattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1), layer_middle)
-                if i == self.depth-1:
-                    layer_middle_shape_list.append(right_shape)
-        if self.data_format == 'channels_first':
-            self.layer_concat = Concatenate(axis=1)
-        else:
-            self.layer_concat = Concatenate()
-        self.layer_concat.build(layer_middle_shape_list)
-        right_shape = self.layer_concat.compute_output_shape(layer_middle_shape_list)
+                self._trainable_weights.extend(layer_middle._trainable_weights)
+            right_shape = layer_middle.compute_output_shape(right_shape)
+            setattr(self, 'layer_middle_{0:02d}'.format(i+1), layer_middle)
         self.layer_last = NACUnit(rank = self.rank,
                           filters = self.ofilters,
                           kernel_size = 1,
@@ -3019,16 +2995,10 @@ class _ResnextTranspose(Layer):
             branch_left = self.layer_branch_left(outputs)
         else:
             branch_left = outputs
-        layer_middle_list = []
-        for G in range(self.lgroups):
-            layer_first = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
-            branch_right = layer_first(outputs)
-            for i in range(self.depth):
-                layer_middle = getattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1))
-                branch_right = layer_middle(branch_right)
-                if i == self.depth-1:
-                    layer_middle_list.append(branch_right)
-        branch_right = self.layer_concat(layer_middle_list)
+        branch_right = self.layer_first(outputs)
+        for i in range(self.depth):
+            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i+1))
+            branch_right = layer_middle(branch_right)
         branch_right = self.layer_last(branch_right)
         outputs = self.layer_merge([branch_left, branch_right])
         if self.layer_cropping is not None:
@@ -3045,16 +3015,10 @@ class _ResnextTranspose(Layer):
             branch_left_shape = self.layer_branch_left.compute_output_shape(next_shape)
         else:
             branch_left_shape = next_shape
-        layer_middle_shape_list = []
-        for G in range(self.lgroups):
-            layer_first = getattr(self, 'layer_G{0:02d}_00'.format(G+1))
-            branch_right_shape = layer_first.compute_output_shape(next_shape)
-            for i in range(self.depth):
-                layer_middle = getattr(self, 'layer_G{0:02d}_{0:02d}'.format(G+1,i+1))
-                branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
-                if i == self.depth-1:
-                    layer_middle_shape_list.append(branch_right_shape)
-        branch_right_shape = self.layer_concat.compute_output_shape(layer_middle_shape_list)
+        branch_right_shape = self.layer_first.compute_output_shape(next_shape)
+        for i in range(self.depth):
+            layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i+1))
+            branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
         branch_right_shape = self.layer_last.compute_output_shape(branch_right_shape)
         next_shape = self.layer_merge.compute_output_shape([branch_left_shape, branch_right_shape])
         if self.layer_cropping is not None:
