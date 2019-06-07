@@ -25,6 +25,10 @@
 # Here we also implement some tied convolutional layers, note
 # that it is necessary to set name scope if using them in multi-
 # models.
+# Version: 0.55 # 2019/6/6
+# Comments:
+#   A failed try for quick group convolution (QGroupConv), move
+#   it to deprecated.
 # Version: 0.5 # 2019/6/6
 # Comments:
 #   Enable the advanced convolutional layers (AConv) to support
@@ -83,7 +87,7 @@ else:
 
 NEW_CONV_TRANSPOSE = True
 
-def _get_macro():
+def _get_macro_conv():
     return NEW_CONV_TRANSPOSE
 
 _check_dl_func = lambda a: all(ai==1 for ai in a)
@@ -1563,7 +1567,7 @@ class _AConvTranspose(Layer):
         if modenew is not None:
             self.modenew = modenew
         else:
-            self.modenew = _get_macro()
+            self.modenew = _get_macro_conv()
         self.filters = filters
         self.lgroups = lgroups
         if (lgroups is not None) and (lgroups > 1):

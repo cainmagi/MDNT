@@ -50,6 +50,11 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.45-b @ 06/07/2019
+
+1. Enable the `ResNeXt` to estimate the latent group and local filter number.
+2. Make a failed try on implementing quick group convolution, testing results show that using `tf.nn.depthwise_conv2d` to replace multiple `convND` ops would be even slower.
+
 ### 0.45 @ 06/06/2019
 
 1. Enable Modern convolutional layers to work with group convolution.

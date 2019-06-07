@@ -43,18 +43,13 @@ from tensorflow.python.ops import array_ops
 from tensorflow.keras.layers import BatchNormalization, LeakyReLU, PReLU
 from tensorflow.python.keras.layers.convolutional import Conv, Conv2DTranspose, Conv3DTranspose, UpSampling1D, UpSampling2D, UpSampling3D, ZeroPadding1D, ZeroPadding2D, ZeroPadding3D, Cropping1D, Cropping2D, Cropping3D
 from .normalize import InstanceNormalization, GroupNormalization
-from .conv import _GroupConv
+from .conv import _GroupConv, _get_macro_conv
 
 from .. import compat
 if compat.COMPATIBLE_MODE:
     from tensorflow.python.keras.engine.base_layer import InputSpec
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec
-
-NEW_CONV_TRANSPOSE = True
-
-def _get_macro():
-    return NEW_CONV_TRANSPOSE
 
 _check_dl_func = lambda a: all(ai==1 for ai in a)
 
@@ -521,7 +516,7 @@ class NACUnitTranspose(Layer):
         if modenew is not None:
             self.modenew = modenew
         else:
-            self.modenew = _get_macro()
+            self.modenew = _get_macro_conv()
         self.filters = filters
         self.lgroups = lgroups
         if (lgroups is not None) and (lgroups > 1):

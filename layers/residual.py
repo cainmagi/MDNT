@@ -49,6 +49,10 @@
 #   https://arxiv.org/abs/1611.05431
 #
 # layers has been modified according to the residual-v2 theory.
+# Version: 0.37 # 2019/6/7
+# Comments:
+#   Enable ResNeXt to estimate the latent group and local 
+#   filter number.
 # Version: 0.35 # 2019/6/6
 # Comments:
 #   Fix memory consumption problem of ResNeXt layers by using
@@ -86,7 +90,15 @@ if compat.COMPATIBLE_MODE:
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec
 
+from functools import reduce
+from math import sqrt
 _check_dl_func = lambda a: all(ai==1 for ai in a)
+_cal_quad_root = lambda a, b, c: (sqrt(b**2 - 4*a*c) - b)/(2*a)
+def _get_prod(x):
+    try:
+        return reduce(lambda a,b:a*b, x)
+    except TypeError:
+        return x
 
 class _Residual(Layer):
     """Modern residual layer.
@@ -1972,15 +1984,19 @@ class _Resnext(Layer):
             raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
         self.channelIn = int(input_shape[channel_axis])
         if (self.lgroups is None) or (self.lfilters is None):
-            wholeLfilters = self.channelIn
             if (self.lgroups is None) and (self.lfilters is None):
                 self.lgroups = 32
             if self.lfilters is None:
-                self.lfilters = max( 1, wholeLfilters // self.lgroups )
+                cal_lfilters = self.channelIn / 2
+                cal_lfilters = _cal_quad_root(a=self.depth*_get_prod(self.kernel_size)*self.lgroups, 
+                               b=(self.channelIn+self.ofilters)*self.lgroups, 
+                               c=-cal_lfilters*(self.channelIn+self.ofilters+self.depth*_get_prod(self.kernel_size)*cal_lfilters))
+                self.lfilters = max( 1, int(round(cal_lfilters)) )
             elif self.lgroups is None:
-                self.lgroups = max( 1, wholeLfilters // self.lfilters )
-        else:
-            wholeLfilters = self.lgroups * self.lfilters
+                cal_lgroups = self.channelIn / 2
+                cal_lgroups = (cal_lgroups/self.lfilters)*(self.depth*_get_prod(self.kernel_size)*cal_lgroups+self.channelIn+self.ofilters)/(self.depth*_get_prod(self.kernel_size)*self.lfilters+self.channelIn+self.ofilters)
+                self.lgroups = max( 1, int(round(cal_lgroups)) )
+        wholeLfilters = self.lgroups * self.lfilters
         last_use_bias = True
         if _check_dl_func(self.strides) and self.ofilters == self.channelIn:
             self.layer_branch_left = None
@@ -2764,15 +2780,19 @@ class _ResnextTranspose(Layer):
             raise ValueError('The channel dimension of the inputs should be defined. Found `None`.')
         self.channelIn = int(input_shape[channel_axis])
         if (self.lgroups is None) or (self.lfilters is None):
-            wholeLfilters = self.channelIn
             if (self.lgroups is None) and (self.lfilters is None):
                 self.lgroups = 32
             if self.lfilters is None:
-                self.lfilters = max( 1, wholeLfilters // self.lgroups )
+                cal_lfilters = self.channelIn / 2
+                cal_lfilters = _cal_quad_root(a=self.depth*_get_prod(self.kernel_size)*self.lgroups, 
+                               b=(self.channelIn+self.ofilters)*self.lgroups, 
+                               c=-cal_lfilters*(self.channelIn+self.ofilters+self.depth*_get_prod(self.kernel_size)*cal_lfilters))
+                self.lfilters = max( 1, int(round(cal_lfilters)) )
             elif self.lgroups is None:
-                self.lgroups = max( 1, wholeLfilters // self.lfilters )
-        else:
-            wholeLfilters = self.lgroups * self.lfilters
+                cal_lgroups = self.channelIn / 2
+                cal_lgroups = (cal_lgroups/self.lfilters)*(self.depth*_get_prod(self.kernel_size)*cal_lgroups+self.channelIn+self.ofilters)/(self.depth*_get_prod(self.kernel_size)*self.lfilters+self.channelIn+self.ofilters)
+                self.lgroups = max( 1, int(round(cal_lgroups)) )
+        wholeLfilters = self.lgroups * self.lfilters
         # If setting output_mshape, need to infer output_padding & output_cropping
         if self.output_mshape is not None:
             if not isinstance(self.output_mshape, (list, tuple)):
