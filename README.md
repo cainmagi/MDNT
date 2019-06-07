@@ -40,8 +40,9 @@ The following demos are working for denoising with MNIST data set.
 * `demo-AConv`: Modern convolutional layers.
 * `demo-AConvTranspose`: Autoencoder based on modern convolutional layers.
 * `demo-AConv1DTranspose`: Autoencoder based on modern 1D convolutional layers.
+* `demo-AGroupConvTranspose`: Autoencoder based on modern group convolutional layers.
 * `demo-ResTranspose`: Autoencoder based on modern residual-v2 layers.
-* ~`demo-ResNeXtTranspose`~: Autoencoder based on modern ResNeXt (residual-v3) layers.
+* `demo-ResNeXtTranspose`: Autoencoder based on modern ResNeXt (residual-v3) layers.
 * `demo-InceptTranspose`: Autoencoder based on modern inception-v4 layers.
 * `demo-InceptResTranspose`: Autoencoder based on modern inception-residual-v2 layers.
 * `demo-external-1`: External layer test 1. We use numpy-api to convert Cartesian coordinates to polar coordinates.
@@ -51,6 +52,11 @@ The following demos are working for denoising with MNIST data set.
 * `demo-dataSet`: Use H5 IO to train and test a network.
 
 ## Update records
+
+### @ 06/07/2019
+
+1. Solve the memory collision problem in `demo-ResNeXtTranspose` for ResNeXt (`Resnext`) layers.
+2. Update the test (`demo-AGroupConvTranspose`) for modern group convolution (`AConv` with `lgroups`) layers.
 
 ### @ 06/05/2019
 
