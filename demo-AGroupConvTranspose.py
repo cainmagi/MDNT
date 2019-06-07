@@ -2,24 +2,26 @@
 # -*- coding: UTF8-*- #
 '''
 ####################################################################
-# Demo for group convolutional layers
+# Demo for transposed modern group convolutional layers
 # Yuchen Jin @ cainmagi@gmail.com
 # Requirements: (Pay attention to version)
 #   python 3.6
 #   tensorflow r1.13+
 #   numpy, matplotlib
-# Test the performance of plain group convolutional layers.
+# Test the performance of transposed modern group convolutional
+# layers.
 # Use
 # ```
-# python demo-GroupConv.py -m tr -mm group -s gpconv
+# python demo-AGroupConvTranspose.py -m tr -mm group -s tgpconv
 # ```
 # to train the network. Then use
 # ```
-# python demo-GroupConv.py -m ts -mm group -s gpconv -rd model-...
+# python demo-AGroupConvTranspose.py -m ts -mm group -s tgpconv -rd model-...
 # ```
 # to perform the test. Here we use `group` to set group normalizat-
 # ion.
-# Version: 1.00 # 2019/6/5
+# normalization.
+# Version: 1.00 # 2019/6/6
 # Comments:
 #   Create this project.
 ####################################################################
@@ -75,23 +77,35 @@ def mean_loss_func(lossfunc, name=None, *args, **kwargs):
     return wrap_func
     
 def build_model(mode='group'):
+    # Set normalization
+    norm_mode = 'inst'
     # Build the model
     channel_1 = 32  # 32 channels
     channel_2 = 64  # 64 channels
+    channel_3 = 128  # 128 channels
+    channel_4 = 512  # 512 channels
     # this is our input placeholder
     input_img = tf.keras.layers.Input(shape=(28, 28, 1))
     # Create encode layers
-    conv_0 = tf.keras.layers.Conv2D(channel_1, (3, 3), activation='relu', padding='same')(input_img)
+    conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=norm_mode, activation='prelu', padding='same')(input_img)
     if mode.casefold() == 'group':
-        conv_1 = mdnt.layers.GroupConv2D(channel_2 // 4, 4, (3, 3), activation='relu', padding='same')(conv_0)
-        conv_2 = mdnt.layers.GroupConv2D(channel_2 // 4, 4, (3, 3), activation='relu', padding='same')(conv_1)
+        conv_2 = mdnt.layers.AConv2D(5 * channel_2, (3, 3), lgroups=32, strides=(2, 2), normalization=norm_mode, activation='prelu', padding='same')(conv_1)
+        conv_3 = mdnt.layers.AConv2D(5 * channel_3, (3, 3), lgroups=32, strides=(2, 2), normalization=norm_mode, activation='prelu', padding='same')(conv_2)
+        conv_4 = mdnt.layers.AConv2D(5 * channel_4, (3, 3), lgroups=32, strides=(2, 2), normalization=norm_mode, activation='prelu', padding='same')(conv_3)
+        deconv_1 = mdnt.layers.AConv2DTranspose(5 * channel_3, (3, 3), lgroups=32, strides=(2, 2), output_mshape=conv_3.get_shape(), normalization=norm_mode, activation='prelu', padding='same')(conv_4)
+        deconv_2 = mdnt.layers.AConv2DTranspose(5 * channel_2, (3, 3), lgroups=32, strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=norm_mode, activation='prelu', padding='same')(deconv_1)
+        deconv_3 = mdnt.layers.AConv2DTranspose(5 * channel_1, (3, 3), lgroups=32, strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=norm_mode, activation='prelu', padding='same')(deconv_2)
     else:
-        conv_1 = tf.keras.layers.Conv2D(channel_2 // 4, (3, 3), activation='relu', padding='same')(conv_0)
-        conv_2 = tf.keras.layers.Conv2D(channel_2 // 4, (3, 3), activation='relu', padding='same')(conv_1)
-    conv_3 = tf.keras.layers.Conv2D(1, (3, 3), activation=tf.nn.sigmoid, padding='same')(conv_2)
+        conv_2 = mdnt.layers.AConv2D(channel_2, (3, 3), strides=(2, 2), normalization=norm_mode, activation='prelu', padding='same')(conv_1)
+        conv_3 = mdnt.layers.AConv2D(channel_3, (3, 3), strides=(2, 2), normalization=norm_mode, activation='prelu', padding='same')(conv_2)
+        conv_4 = mdnt.layers.AConv2D(channel_4, (3, 3), strides=(2, 2), normalization=norm_mode, activation='prelu', padding='same')(conv_3)
+        deconv_1 = mdnt.layers.AConv2DTranspose(channel_3, (3, 3), strides=(2, 2), output_mshape=conv_3.get_shape(), normalization=norm_mode, activation='prelu', padding='same')(conv_4)
+        deconv_2 = mdnt.layers.AConv2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=norm_mode, activation='prelu', padding='same')(deconv_1)
+        deconv_3 = mdnt.layers.AConv2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=norm_mode, activation='prelu', padding='same')(deconv_2)
+    deconv_4 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), output_mshape=input_img.get_shape(), normalization='bias', activation=tf.nn.sigmoid, padding='same')(deconv_3)
         
     # this model maps an input to its reconstruction
-    denoiser = tf.keras.models.Model(input_img, conv_3)
+    denoiser = tf.keras.models.Model(input_img, deconv_4)
     denoiser.summary()
     
     return denoiser
@@ -236,12 +250,15 @@ if __name__ == '__main__':
             tf.gfile.DeleteRecursively(folder)
         checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_loss:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
+        logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs/', args.savedPath), 
+            histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=5)
+        reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=args.learningRate*0.01, verbose=1)
         denoiser.fit(x_train_noisy, x_train,
                     epochs=args.epoch,
                     batch_size=args.trainBatchNum,
                     shuffle=True,
                     validation_data=(x_test_noisy, x_test),
-                    callbacks=[checkpointer])
+                    callbacks=[checkpointer, logger, reduce_lr])
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
         denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})
