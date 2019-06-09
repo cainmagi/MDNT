@@ -14,6 +14,11 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.48 # 2019/6/9
+# Comments:
+# Finish Inceptplus1D, Inceptplus2D, Inceptplus3D,
+#        Inceptplus1DTranspose, Inceptplus2DTranspose,
+#        Inceptplus3DTranspose in .layers.
 # Version: 0.45-b # 2019/6/7
 # Comments:
 # 1. Enable the ResNeXt to estimate the latent group and local 
@@ -92,7 +97,7 @@ from . import optimizers
 from . import layers
 from . import data
 
-__version__ = '0.45-b'
+__version__ = '0.48'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

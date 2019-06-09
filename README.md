@@ -24,7 +24,7 @@ Now we have such progress on the semi-product:
     - [x] ResNeXt layers (or blocks) and their transposed versions.
     - [x] Inception-v4 layers (or blocks) and their transposed versions.
     - [x] InceptionRes-v2 layers (or blocks) and their transposed versions.
-    - [ ] InceptionPlus layers (or blocks) and their transposed versions.
+    - [x] InceptionPlus layers (or blocks) and their transposed versions.
     - [x] External interface for using generic python function.
 - [ ] data:
     - [x] Basic h5py (HDF5) IO handles.
@@ -49,6 +49,10 @@ Now we have such progress on the semi-product:
 Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
+
+### 0.48 @ 06/09/2019
+
+Finish `Inceptplus1D`, `Inceptplus2D`, `Inceptplus3D`, `Inceptplus1DTranspose`,  `Inceptplus2DTranspose`, `Inceptplus3DTranspose` in `.layers`.
 
 ### 0.45-b @ 06/07/2019
 

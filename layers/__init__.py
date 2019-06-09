@@ -21,7 +21,7 @@ from .normalize import InstanceNormalization, GroupNormalization
 from .conv import AConv1D, AConv2D, AConv3D, AConv1DTranspose, AConv2DTranspose, AConv3DTranspose, GroupConv1D, GroupConv2D, GroupConv3D#, AConv1DTied, AConv2DTied, AConv3DTied
 from .external import PyExternal
 from .residual import Residual1D, Residual1DTranspose, Residual2D, Residual2DTranspose, Residual3D, Residual3DTranspose, Resnext1D, Resnext1DTranspose, Resnext2D, Resnext2DTranspose, Resnext3D, Resnext3DTranspose
-from .inception import Inception1D, Inception2D, Inception3D, Inception1DTranspose, Inception2DTranspose, Inception3DTranspose, Inceptres1D, Inceptres2D, Inceptres3D, Inceptres1DTranspose, Inceptres2DTranspose, Inceptres3DTranspose
+from .inception import Inception1D, Inception2D, Inception3D, Inception1DTranspose, Inception2DTranspose, Inception3DTranspose, Inceptres1D, Inceptres2D, Inceptres3D, Inceptres1DTranspose, Inceptres2DTranspose, Inceptres3DTranspose, Inceptplus1D, Inceptplus2D, Inceptplus3D, Inceptplus1DTranspose, Inceptplus2DTranspose, Inceptplus3DTranspose
 
 # Set layer dictionaries
 customObjects = {
@@ -61,6 +61,12 @@ customObjects = {
     'Inceptres1DTranspose': Inceptres1DTranspose,
     'Inceptres2DTranspose': Inceptres2DTranspose,
     'Inceptres3DTranspose': Inceptres3DTranspose,
+    'Inceptplus1D': Inceptplus1D,
+    'Inceptplus2D': Inceptplus2D,
+    'Inceptplus3D': Inceptplus3D,
+    'Inceptplus1DTranspose': Inceptplus1DTranspose,
+    'Inceptplus2DTranspose': Inceptplus2DTranspose,
+    'Inceptplus3DTranspose': Inceptplus3DTranspose,
     'PyExternal': PyExternal
 }
 
