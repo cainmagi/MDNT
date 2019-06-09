@@ -4186,7 +4186,7 @@ class _Inceptplus(Layer):
             else:
                 raise ValueError('Rank of the inception should be 1, 2 or 3.')
             layer_avg.build(branch_avg_shape)
-            branch_avg_shape = self.layer_avg.compute_output_shape(branch_avg_shape)
+            branch_avg_shape = layer_avg.compute_output_shape(branch_avg_shape)
             setattr(self, 'layer_avg_D{0:02d}'.format(D+1), layer_avg)
             # Second use substract layer to perform input - avg
             layer_middle_input = Subtract()
@@ -5106,7 +5106,7 @@ class _InceptplusTranspose(Layer):
             else:
                 raise ValueError('Rank of the inception should be 1, 2 or 3.')
             layer_avg.build(branch_avg_shape)
-            branch_avg_shape = self.layer_avg.compute_output_shape(branch_avg_shape)
+            branch_avg_shape = layer_avg.compute_output_shape(branch_avg_shape)
             setattr(self, 'layer_avg_D{0:02d}'.format(D+1), layer_avg)
             # Second use substract layer to perform input - avg
             layer_middle_input = Subtract()
