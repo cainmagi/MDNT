@@ -16,9 +16,11 @@
 # plain tensorflow-keras.
 # Version: 0.48 # 2019/6/9
 # Comments:
-# Finish Inceptplus1D, Inceptplus2D, Inceptplus3D,
-#        Inceptplus1DTranspose, Inceptplus2DTranspose,
-#        Inceptplus3DTranspose in .layers.
+# 1. Finish Inceptplus1D, Inceptplus2D, Inceptplus3D,
+#           Inceptplus1DTranspose, Inceptplus2DTranspose,
+#           Inceptplus3DTranspose in .layers.
+# 2. Minor changes for docstrings and default settings in 
+#    `.layers.inception`.
 # Version: 0.45-b # 2019/6/7
 # Comments:
 # 1. Enable the ResNeXt to estimate the latent group and local 

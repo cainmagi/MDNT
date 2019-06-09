@@ -1738,11 +1738,6 @@ class Inception2DTranspose(_InceptionTranspose):
         or 4D tensor with shape:
         `(batch, new_rows, new_cols, filters)` if data_format='channels_last'.
         `rows` and `cols` values might have changed due to padding.
-    References:
-        - [A guide to convolution arithmetic for deep
-            learning](https://arxiv.org/abs/1603.07285v1)
-        - [Deconvolutional
-            Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
     """
 
     def __init__(self, ofilters,
@@ -1914,11 +1909,6 @@ class Inception3DTranspose(_InceptionTranspose):
         `(batch, new_depth, new_rows, new_cols, filters)` if
         data_format='channels_last'.
         `depth` and `rows` and `cols` values might have changed due to padding.
-    References:
-        - [A guide to convolution arithmetic for deep
-            learning](https://arxiv.org/abs/1603.07285v1)
-        - [Deconvolutional
-            Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
     """
 
     def __init__(self, ofilters,
@@ -3731,11 +3721,6 @@ class Inceptres2DTranspose(_InceptresTranspose):
         or 4D tensor with shape:
         `(batch, new_rows, new_cols, filters)` if data_format='channels_last'.
         `rows` and `cols` values might have changed due to padding.
-    References:
-        - [A guide to convolution arithmetic for deep
-            learning](https://arxiv.org/abs/1603.07285v1)
-        - [Deconvolutional
-            Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
     """
 
     def __init__(self, ofilters,
@@ -3905,11 +3890,6 @@ class Inceptres3DTranspose(_InceptresTranspose):
         `(batch, new_depth, new_rows, new_cols, filters)` if
         data_format='channels_last'.
         `depth` and `rows` and `cols` values might have changed due to padding.
-    References:
-        - [A guide to convolution arithmetic for deep
-            learning](https://arxiv.org/abs/1603.07285v1)
-        - [Deconvolutional
-            Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
     """
 
     def __init__(self, ofilters,
@@ -4447,7 +4427,7 @@ class Inceptplus1D(_Inceptplus):
                ofilters,
                kernel_size,
                lfilters=None,
-               depth=3,
+               depth=2,
                strides=1,
                data_format='channels_last',
                dilation_rate=1,
@@ -4588,7 +4568,7 @@ class Inceptplus2D(_Inceptplus):
                ofilters,
                kernel_size,
                lfilters=None,
-               depth=3,
+               depth=2,
                strides=(1, 1),
                data_format='channels_last',
                dilation_rate=(1, 1),
@@ -4735,7 +4715,7 @@ class Inceptplus3D(_Inceptplus):
                ofilters,
                kernel_size,
                lfilters=None,
-               depth=3,
+               depth=2,
                strides=(1, 1, 1),
                data_format='channels_last',
                dilation_rate=(1, 1, 1),
@@ -5417,7 +5397,7 @@ class Inceptplus1DTranspose(_InceptplusTranspose):
     def __init__(self, ofilters,
                  kernel_size,
                  lfilters=None,
-                 depth=3,
+                 depth=2,
                  strides=1,
                  output_mshape=None,
                  output_padding=None,
@@ -5581,17 +5561,12 @@ class Inceptplus2DTranspose(_InceptplusTranspose):
         or 4D tensor with shape:
         `(batch, new_rows, new_cols, filters)` if data_format='channels_last'.
         `rows` and `cols` values might have changed due to padding.
-    References:
-        - [A guide to convolution arithmetic for deep
-            learning](https://arxiv.org/abs/1603.07285v1)
-        - [Deconvolutional
-            Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
     """
 
     def __init__(self, ofilters,
                  kernel_size,
                  lfilters=None,
-                 depth=3,
+                 depth=2,
                  strides=(1, 1),
                  output_mshape=None,
                  output_padding=None,
@@ -5758,17 +5733,12 @@ class Inceptplus3DTranspose(_InceptplusTranspose):
         `(batch, new_depth, new_rows, new_cols, filters)` if
         data_format='channels_last'.
         `depth` and `rows` and `cols` values might have changed due to padding.
-    References:
-        - [A guide to convolution arithmetic for deep
-            learning](https://arxiv.org/abs/1603.07285v1)
-        - [Deconvolutional
-            Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
     """
 
     def __init__(self, ofilters,
                  kernel_size,
                  lfilters=None,
-                 depth=3,
+                 depth=2,
                  strides=(1, 1, 1),
                  output_mshape=None,
                  output_padding=None,
