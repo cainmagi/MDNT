@@ -58,6 +58,7 @@ The following demos are working for denoising with MNIST data set.
 
 1. Update the test (`demo-InceptPlusTranspose`) for inception plus (`Inceptplus`) layers.
 2. Minor revisions on docstrings.
+3. Make the learning rate schedulers for some tests optional.
 
 ### @ 06/07/2019
 

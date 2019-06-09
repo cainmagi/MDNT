@@ -201,6 +201,13 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
+        '-rlr', '--reduceLR', type=str2bool, nargs='?', const=True, default=False, metavar='bool',
+        help='''\
+        Use the automatic learning rate reducing scheduler (would reduce LR to 0.1 of the initial configuration if need). (only for train)
+        '''
+    )
+
+    parser.add_argument(
         '-gn', '--gpuNumber', default=-1, type=int, metavar='int',
         help='''\
         The number of used GPU. If set -1, all GPUs would be visible.
@@ -250,13 +257,17 @@ if __name__ == '__main__':
         tf.gfile.MakeDirs(folder)
         logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs/', args.savedPath), 
             histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=5)
-        reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=args.learningRate*0.01, verbose=1)
+        if args.reduceLR:
+            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=args.learningRate*0.1, verbose=1)
+            get_callbacks = [checkpointer, logger, reduce_lr]
+        else:
+            get_callbacks = [checkpointer, logger]
         denoiser.fit(x_train_noisy, x_train,
                     epochs=args.epoch,
                     batch_size=args.trainBatchNum,
                     shuffle=True,
                     validation_data=(x_test_noisy, x_test),
-                    callbacks=[checkpointer, logger, reduce_lr])
+                    callbacks=get_callbacks)
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
         denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})
