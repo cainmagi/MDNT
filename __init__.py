@@ -14,6 +14,10 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.48-b # 2019/6/10
+# Comments:
+#   A Test on replacing the `.layers.DenseTied` APIs like 
+#   `tf.keras.layers.Wrappers`.
 # Version: 0.48 # 2019/6/9
 # Comments:
 # 1. Finish Inceptplus1D, Inceptplus2D, Inceptplus3D,
@@ -27,7 +31,8 @@
 #    filter number.
 # 2. Make a failed try on implementing quick group convolution,
 #    testing results show that using tf.nn.depthwise_conv2d
-#    to replace multiple convND ops would be even slower.
+#    to replace multiple convND ops would cause the computation
+#    to be even slower.
 # Version: 0.45 # 2019/6/6
 # Comments:
 # 1. Enable Modern convolutional layers to work with group
@@ -99,7 +104,7 @@ from . import optimizers
 from . import layers
 from . import data
 
-__version__ = '0.48'
+__version__ = '0.48-b'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

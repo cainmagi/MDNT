@@ -50,6 +50,10 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.48-b @ 06/10/2019
+
+A Test on replacing the `.layers.DenseTied` APIs like `tf.keras.layers.Wrappers`.
+
 ### 0.48 @ 06/09/2019
 
 1. Finish `Inceptplus1D`, `Inceptplus2D`, `Inceptplus3D`, `Inceptplus1DTranspose`,  `Inceptplus2DTranspose`, `Inceptplus3DTranspose` in `.layers`.
@@ -58,7 +62,7 @@ Check the branch [`demos`][brch-demos] to learn more details.
 ### 0.45-b @ 06/07/2019
 
 1. Enable the `ResNeXt` to estimate the latent group and local filter number.
-2. Make a failed try on implementing quick group convolution, testing results show that using `tf.nn.depthwise_conv2d` to replace multiple `convND` ops would be even slower.
+2. Make a failed try on implementing quick group convolution, testing results show that using `tf.nn.depthwise_conv2d` to replace multiple `convND` ops would cause the computation to be even slower.
 
 ### 0.45 @ 06/06/2019
 

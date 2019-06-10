@@ -15,5 +15,6 @@
 
 # Import sub-modules
 from .external import External
+from .dense import DenseTied
 
-__all__ = ['External']
+__all__ = ['External', 'DenseTied']
