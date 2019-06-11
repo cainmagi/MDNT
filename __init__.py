@@ -14,17 +14,23 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.50 # 2019/6/11
+# Comments:
+#   1. Finish Conv1DTied, Conv2DTied, Conv3DTied in .layers.
+#   2. Switch back to the 0.48 version for .layers.DenseTied
+#      APIs because testing show that the modification in
+#      0.48-b will cause bugs.
 # Version: 0.48-b # 2019/6/10
 # Comments:
-#   A Test on replacing the `.layers.DenseTied` APIs like 
-#   `tf.keras.layers.Wrappers`.
+#   A Test on replacing the .layers.DenseTied APIs like 
+#   tf.keras.layers.Wrappers.
 # Version: 0.48 # 2019/6/9
 # Comments:
 # 1. Finish Inceptplus1D, Inceptplus2D, Inceptplus3D,
 #           Inceptplus1DTranspose, Inceptplus2DTranspose,
 #           Inceptplus3DTranspose in .layers.
 # 2. Minor changes for docstrings and default settings in 
-#    `.layers.inception`.
+#    .layers.inception.
 # Version: 0.45-b # 2019/6/7
 # Comments:
 # 1. Enable the ResNeXt to estimate the latent group and local 
@@ -104,7 +110,7 @@ from . import optimizers
 from . import layers
 from . import data
 
-__version__ = '0.48-b'
+__version__ = '0.50'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

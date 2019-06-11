@@ -833,7 +833,6 @@ class NACUnitTranspose(Layer):
                                     padding = self.padding,
                                     output_padding = self.output_padding,
                                     data_format = self.data_format,
-                                    dilation_rate = self.dilation_rate,
                                     activation = None,
                                     use_bias = self._use_bias,
                                     bias_initializer = bias_initializer,

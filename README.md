@@ -50,6 +50,11 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.50 @ 06/11/2019
+
+1. Finish `Conv1DTied`, `Conv2DTied`, `Conv3DTied` in `.layers`.
+2. Switch back to the 0.48 version for `.layers.DenseTied` APIs because testing show that the modification in 0.48-b will cause bugs.
+
 ### 0.48-b @ 06/10/2019
 
 A Test on replacing the `.layers.DenseTied` APIs like `tf.keras.layers.Wrappers`.

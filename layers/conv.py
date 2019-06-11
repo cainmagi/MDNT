@@ -74,6 +74,7 @@ from tensorflow.python.keras.engine.base_layer import Layer
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import nn
 from tensorflow.python.ops import nn_ops
+from tensorflow.python.ops import variables
 
 from tensorflow.keras.layers import BatchNormalization, LeakyReLU, PReLU
 from tensorflow.python.keras.layers.convolutional import Conv, Conv2DTranspose, Conv3DTranspose, UpSampling1D, UpSampling2D, UpSampling3D, ZeroPadding1D, ZeroPadding2D, ZeroPadding3D, Cropping1D, Cropping2D, Cropping3D
@@ -91,6 +92,484 @@ def _get_macro_conv():
     return NEW_CONV_TRANSPOSE
 
 _check_dl_func = lambda a: all(ai==1 for ai in a)
+
+class Conv1DTied(Conv2DTranspose):
+    """Tied convolution layer (sometimes called Deconvolution).
+    Compared to `Conv1DTranspose`, this implementation requires a `Conv1D`
+    layer to provide kernel which would be used as the kernel for transpo-
+    sed convolution. As a result, this implementation is a symmetric layer
+    for the provided layer.
+    The need for transposed convolutions generally arises
+    from the desire to use a transformation going in the opposite direction
+    of a normal convolution, i.e., from something that has the shape of the
+    output of some convolution to something that has the shape of its input
+    while maintaining a connectivity pattern that is compatible with
+    said convolution.
+    When using this layer as the first layer in a model,
+    provide the keyword argument `input_shape`
+    (tuple of integers, does not include the sample axis),
+    e.g. `input_shape=(128, 3)` for 128 length vector
+    in `data_format="channels_last"`.
+    NOTE THAT ALTHOUGH WE HAVE SUCCESSED TO MAKE THIS LAYER SERIALIZABLE,
+    IT MAY BE STILL PROBLEMATIC FOR TRAINING ALGORITHM. PLEASE BE CAREFUL
+    WHEN USING SUCH KIND OF LAYERS.
+    IN MULTIPLE MODELS, THIS INSTANCE MAY CAUSING CONFLICTS BECAUSE IT
+    USES GLOBAL VARIABLE NAME TO SERIALIZE CROSSED LAYERS. IT IS
+    RECOMMENDED TO SEPARATE NAME SCOPES WHEN USING MULTIPLE MODELS.
+    Arguments:
+        padding: one of `"valid"` or `"same"` (case-insensitive).
+        output_padding: An integer or tuple/list of 1 integers,
+            specifying the amount of padding along the height and width
+            of the output tensor.
+            Can be a single integer to specify the same value for all
+            spatial dimensions.
+            The amount of output padding along a given dimension must be
+            lower than the stride along that same dimension.
+            If set to `None` (default), the output shape is inferred.
+        activation: Activation function to use.
+            If you don't specify anything, no activation is applied
+            (ie. "linear" activation: `a(x) = x`).
+        use_bias: Boolean, whether the layer uses a bias vector.
+        bias_initializer: Initializer for the bias vector.
+        bias_regularizer: Regularizer function applied to the bias vector.
+        activity_regularizer: Regularizer function applied to
+            the output of the layer (its "activation")..
+        bias_constraint: Constraint function applied to the bias vector.
+    Reserved arguments:
+        varName, filters, kernel_size, strides, data_format, 
+            dilation_rate: only used when saving and restoring the layer.
+    Input shape:
+        3D tensor with shape:
+        `(batch, channels, steps)` if data_format='channels_first'
+        or 3D tensor with shape:
+        `(batch, steps, channels)` if data_format='channels_last'.
+    Output shape:
+        3D tensor with shape:
+        `(batch, filters, new_steps)` if data_format='channels_first'
+        or 3D tensor with shape:
+        `(batch, new_steps, filters)` if data_format='channels_last'.
+        `new_steps` values might have changed due to padding.
+    """
+
+    def __init__(self,
+                 tied_layer='',
+                 padding='valid',
+                 output_padding=None,
+                 activation=None,
+                 use_bias=True,
+                 bias_initializer='zeros',
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 bias_constraint=None,
+                 varName='',
+                 filters=None,
+                 kernel_size=1,
+                 strides=1,
+                 data_format=None,
+                 dilation_rate=1,
+                 **kwargs):
+        # Reserved variables
+        if tied_layer != '':
+            self.kernelFrom = tied_layer.kernel.name
+            data_format = tied_layer.data_format
+            strides = (1, *tied_layer.strides)
+            dilation_rate = (1, *tied_layer.dilation_rate)
+        super(Conv2DTranspose, self).__init__(
+                filters=filters,
+                kernel_size=kernel_size,
+                strides=strides,
+                padding=padding,
+                data_format=data_format,
+                dilation_rate=dilation_rate,
+                activation=activations.get(activation),
+                use_bias=use_bias,
+                bias_initializer=initializers.get(bias_initializer),
+                bias_regularizer=regularizers.get(bias_regularizer),
+                activity_regularizer=regularizers.get(activity_regularizer),
+                bias_constraint=constraints.get(bias_constraint),
+                **kwargs)
+
+        self.output_padding = output_padding
+        if output_padding is not None:
+            if isinstance(output_padding, (list, tuple)) and len(output_padding)==2:
+                self.output_padding = output_padding
+            else:    
+                output_padding = conv_utils.normalize_tuple(output_padding, 1, 'output_padding')
+                self.output_padding = (1, *output_padding)
+        self.varName = varName
+        self.input_spec = InputSpec(ndim=3)
+
+    def build(self, input_shape):
+        input_shape = tensor_shape.TensorShape(input_shape)
+        if len(input_shape) != 3:
+            raise ValueError('Inputs should have rank 3. Received input shape: ' + str(input_shape))
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+            self.get_channels_first = True
+        else:
+            channel_axis = -1
+            self.get_channels_first = False
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs '
+                             'should be defined. Found `None`.')
+        input_dim = int(input_shape[channel_axis])
+        self.input_spec = InputSpec(ndim=3, axes={channel_axis: input_dim})
+        
+        if self.varName == '':
+            kernelFrom = list(filter(lambda x:x.name==self.kernelFrom, [op for op in variables.global_variables(scope=None)]))[0]
+        else:
+            kernelFrom = list(filter(lambda x:x.name==self.varName, [op for op in variables.global_variables(scope=None)]))[0]
+        self.kernel = K.expand_dims(kernelFrom, axis=0)
+        # Save/Load information from tied layer (or database).
+        if self.varName == '':
+            kernel_shape = self.kernel.get_shape().as_list()
+            self.varName = kernelFrom.name
+            self.kernel_size = kernel_shape[:2]
+            self.filters = kernel_shape[2]
+        if self.output_padding is not None:
+            for stride, out_pad in zip(self.strides, self.output_padding):
+                if out_pad >= stride:
+                    raise ValueError('Stride ' + str(self.strides) + ' must be '
+                                     'greater than output padding ' +
+                                     str(self.output_padding))
+        if self.use_bias:
+            self.bias = self.add_weight(
+                name='bias',
+                shape=(self.filters,),
+                initializer=self.bias_initializer,
+                regularizer=self.bias_regularizer,
+                constraint=self.bias_constraint,
+                trainable=True,
+                dtype=self.dtype)
+        else:
+            self.bias = None
+        self.built = True
+
+    def call(self, inputs):
+        print(inputs)
+        if self.get_channels_first:
+            r2_inputs = K.expand_dims(inputs, axis=2)
+            get_r2_out = super(Conv1DTied, self).call(r2_inputs)
+            return K.squeeze(get_r2_out, axis=2)
+        else:
+            r2_inputs = K.expand_dims(inputs, axis=1)
+            get_r2_out = super(Conv1DTied, self).call(r2_inputs)
+            return K.squeeze(get_r2_out, axis=1)
+
+    def get_config(self):
+        config = super(Conv1DTied, self).get_config()
+        config['varName'] = self.varName
+        config['tied_layer'] = ''
+        return config
+
+class Conv2DTied(Conv2DTranspose):
+    """Tied convolution layer (sometimes called Deconvolution).
+    Compared to `Conv2DTranspose`, this implementation requires a `Conv2D`
+    layer to provide kernel which would be used as the kernel for transpo-
+    sed convolution. As a result, this implementation is a symmetric layer
+    for the provided layer.
+    The need for transposed convolutions generally arises
+    from the desire to use a transformation going in the opposite direction
+    of a normal convolution, i.e., from something that has the shape of the
+    output of some convolution to something that has the shape of its input
+    while maintaining a connectivity pattern that is compatible with
+    said convolution.
+    When using this layer as the first layer in a model,
+    provide the keyword argument `input_shape`
+    (tuple of integers, does not include the sample axis),
+    e.g. `input_shape=(128, 128, 3)` for 128x128 RGB pictures
+    in `data_format="channels_last"`.
+    NOTE THAT ALTHOUGH WE HAVE SUCCESSED TO MAKE THIS LAYER SERIALIZABLE,
+    IT MAY BE STILL PROBLEMATIC FOR TRAINING ALGORITHM. PLEASE BE CAREFUL
+    WHEN USING SUCH KIND OF LAYERS.
+    IN MULTIPLE MODELS, THIS INSTANCE MAY CAUSING CONFLICTS BECAUSE IT
+    USES GLOBAL VARIABLE NAME TO SERIALIZE CROSSED LAYERS. IT IS
+    RECOMMENDED TO SEPARATE NAME SCOPES WHEN USING MULTIPLE MODELS.
+    Arguments:
+        padding: one of `"valid"` or `"same"` (case-insensitive).
+        output_padding: An integer or tuple/list of 2 integers,
+            specifying the amount of padding along the height and width
+            of the output tensor.
+            Can be a single integer to specify the same value for all
+            spatial dimensions.
+            The amount of output padding along a given dimension must be
+            lower than the stride along that same dimension.
+            If set to `None` (default), the output shape is inferred.
+        activation: Activation function to use.
+            If you don't specify anything, no activation is applied
+            (ie. "linear" activation: `a(x) = x`).
+        use_bias: Boolean, whether the layer uses a bias vector.
+        bias_initializer: Initializer for the bias vector.
+        bias_regularizer: Regularizer function applied to the bias vector.
+        activity_regularizer: Regularizer function applied to
+            the output of the layer (its "activation")..
+        bias_constraint: Constraint function applied to the bias vector.
+    Reserved arguments:
+        varName, filters, kernel_size, strides, data_format, 
+            dilation_rate: only used when saving and restoring the layer.
+    Input shape:
+        4D tensor with shape:
+        `(batch, channels, rows, cols)` if data_format='channels_first'
+        or 4D tensor with shape:
+        `(batch, rows, cols, channels)` if data_format='channels_last'.
+    Output shape:
+        4D tensor with shape:
+        `(batch, filters, new_rows, new_cols)` if data_format='channels_first'
+        or 4D tensor with shape:
+        `(batch, new_rows, new_cols, filters)` if data_format='channels_last'.
+        `rows` and `cols` values might have changed due to padding.
+    """
+
+    def __init__(self,
+                 tied_layer='',
+                 padding='valid',
+                 output_padding=None,
+                 activation=None,
+                 use_bias=True,
+                 bias_initializer='zeros',
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 bias_constraint=None,
+                 varName='',
+                 filters=None,
+                 kernel_size=1,
+                 strides=1,
+                 data_format=None,
+                 dilation_rate=1,
+                 **kwargs):
+        # Reserved variables
+        if tied_layer != '':
+            self.kernelFrom = tied_layer.kernel.name
+            data_format = tied_layer.data_format
+            strides = tied_layer.strides
+            dilation_rate = tied_layer.dilation_rate
+        super(Conv2DTranspose, self).__init__(
+                filters=filters,
+                kernel_size=kernel_size,
+                strides=strides,
+                padding=padding,
+                data_format=data_format,
+                dilation_rate=dilation_rate,
+                activation=activations.get(activation),
+                use_bias=use_bias,
+                bias_initializer=initializers.get(bias_initializer),
+                bias_regularizer=regularizers.get(bias_regularizer),
+                activity_regularizer=regularizers.get(activity_regularizer),
+                bias_constraint=constraints.get(bias_constraint),
+                **kwargs)
+
+        self.output_padding = output_padding
+        if self.output_padding is not None:
+            self.output_padding = conv_utils.normalize_tuple(self.output_padding, 2, 'output_padding')
+        self.varName = varName
+
+    def build(self, input_shape):
+        input_shape = tensor_shape.TensorShape(input_shape)
+        if len(input_shape) != 4:
+            raise ValueError('Inputs should have rank 4. Received input shape: ' + str(input_shape))
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs '
+                             'should be defined. Found `None`.')
+        input_dim = int(input_shape[channel_axis])
+        self.input_spec = InputSpec(ndim=4, axes={channel_axis: input_dim})
+        
+        if self.varName == '':
+            kernelFrom = list(filter(lambda x:x.name==self.kernelFrom, [op for op in variables.global_variables(scope=None)]))[0]
+        else:
+            kernelFrom = list(filter(lambda x:x.name==self.varName, [op for op in variables.global_variables(scope=None)]))[0]
+        self.kernel = kernelFrom
+        # Save/Load information from tied layer (or database).
+        if self.varName == '':
+            kernel_shape = self.kernel.get_shape().as_list()
+            self.varName = kernelFrom.name
+            self.kernel_size = kernel_shape[:2]
+            self.filters = kernel_shape[2]
+        if self.output_padding is not None:
+            for stride, out_pad in zip(self.strides, self.output_padding):
+                if out_pad >= stride:
+                    raise ValueError('Stride ' + str(self.strides) + ' must be '
+                                     'greater than output padding ' +
+                                     str(self.output_padding))
+        if self.use_bias:
+            self.bias = self.add_weight(
+                name='bias',
+                shape=(self.filters,),
+                initializer=self.bias_initializer,
+                regularizer=self.bias_regularizer,
+                constraint=self.bias_constraint,
+                trainable=True,
+                dtype=self.dtype)
+        else:
+            self.bias = None
+        self.built = True
+
+    def get_config(self):
+        config = super(Conv2DTied, self).get_config()
+        config['varName'] = self.varName
+        config['tied_layer'] = ''
+        return config
+
+class Conv3DTied(Conv3DTranspose):
+    """Tied convolution layer (sometimes called Deconvolution).
+    Compared to `Conv3DTranspose`, this implementation requires a `Conv3D`
+    layer to provide kernel which would be used as the kernel for transpo-
+    sed convolution. As a result, this implementation is a symmetric layer
+    for the provided layer.
+    The need for transposed convolutions generally arises
+    from the desire to use a transformation going in the opposite direction
+    of a normal convolution, i.e., from something that has the shape of the
+    output of some convolution to something that has the shape of its input
+    while maintaining a connectivity pattern that is compatible with
+    said convolution.
+    When using this layer as the first layer in a model,
+    provide the keyword argument `input_shape`
+    (tuple of integers, does not include the sample axis),
+    e.g. `input_shape=(128, 128, 128, 3)` for a 128x128x128 volume with 3 channels
+    if `data_format="channels_last"`.
+    NOTE THAT ALTHOUGH WE HAVE SUCCESSED TO MAKE THIS LAYER SERIALIZABLE,
+    IT MAY BE STILL PROBLEMATIC FOR TRAINING ALGORITHM. PLEASE BE CAREFUL
+    WHEN USING SUCH KIND OF LAYERS.
+    IN MULTIPLE MODELS, THIS INSTANCE MAY CAUSING CONFLICTS BECAUSE IT
+    USES GLOBAL VARIABLE NAME TO SERIALIZE CROSSED LAYERS. IT IS
+    RECOMMENDED TO SEPARATE NAME SCOPES WHEN USING MULTIPLE MODELS.
+    Arguments:
+        padding: one of `"valid"` or `"same"` (case-insensitive).
+        output_padding: An integer or tuple/list of 3 integers,
+            specifying the amount of padding along the depth, height, and
+            width.
+            Can be a single integer to specify the same value for all
+            spatial dimensions.
+            The amount of output padding along a given dimension must be
+            lower than the stride along that same dimension.
+            If set to `None` (default), the output shape is inferred.
+        activation: Activation function to use
+            (see [activations](../activations.md)).
+            If you don't specify anything, no activation is applied
+            (ie. "linear" activation: `a(x) = x`).
+        use_bias: Boolean, whether the layer uses a bias vector.
+        bias_initializer: Initializer for the bias vector
+            (see [initializers](../initializers.md)).
+        bias_regularizer: Regularizer function applied to the bias vector
+            (see [regularizer](../regularizers.md)).
+        activity_regularizer: Regularizer function applied to
+            the output of the layer (its "activation").
+            (see [regularizer](../regularizers.md)).
+        bias_constraint: Constraint function applied to the bias vector
+            (see [constraints](../constraints.md)).
+    Reserved arguments:
+        varName, filters, kernel_size, strides, data_format:
+            only used when saving and restoring the layer.
+    Input shape:
+        5D tensor with shape:
+        `(batch, channels, depth, rows, cols)` if data_format='channels_first'
+        or 5D tensor with shape:
+        `(batch, depth, rows, cols, channels)` if data_format='channels_last'.
+    Output shape:
+        5D tensor with shape:
+        `(batch, filters, new_depth, new_rows, new_cols)` if
+            data_format='channels_first'
+        or 5D tensor with shape:
+        `(batch, new_depth, new_rows, new_cols, filters)` if
+            data_format='channels_last'.
+        `depth` and `rows` and `cols` values might have changed due to padding.
+    """
+
+    def __init__(self,
+                 tied_layer='',
+                 padding='valid',
+                 output_padding=None,
+                 activation=None,
+                 use_bias=True,
+                 bias_initializer='zeros',
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 bias_constraint=None,
+                 varName='',
+                 filters=None,
+                 kernel_size=1,
+                 strides=1,
+                 data_format=None,
+                 **kwargs):
+        # Reserved variables
+        if tied_layer != '':
+            self.kernelFrom = tied_layer.kernel.name
+            data_format = tied_layer.data_format
+            strides = tied_layer.strides
+        super(Conv3DTranspose, self).__init__(
+            filters=filters,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            data_format=data_format,
+            activation=activations.get(activation),
+            use_bias=use_bias,
+            kernel_initializer=initializers.get(kernel_initializer),
+            bias_initializer=initializers.get(bias_initializer),
+            kernel_regularizer=regularizers.get(kernel_regularizer),
+            bias_regularizer=regularizers.get(bias_regularizer),
+            activity_regularizer=regularizers.get(activity_regularizer),
+            kernel_constraint=constraints.get(kernel_constraint),
+            bias_constraint=constraints.get(bias_constraint),
+            **kwargs)
+
+        self.output_padding = output_padding
+        if self.output_padding is not None:
+            self.output_padding = conv_utils.normalize_tuple(self.output_padding, 3, 'output_padding')
+        self.varName = varName
+
+    def build(self, input_shape):
+        input_shape = tensor_shape.TensorShape(input_shape)
+        if len(input_shape) != 5:
+            raise ValueError('Inputs should have rank 5, received input shape:', str(input_shape))
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
+        if input_shape.dims[channel_axis].value is None:
+            raise ValueError('The channel dimension of the inputs '
+                             'should be defined, found None: ' + str(input_shape))
+        input_dim = int(input_shape[channel_axis])
+        self.input_spec = InputSpec(ndim=5, axes={channel_axis: input_dim})
+
+        if self.varName == '':
+            kernelFrom = list(filter(lambda x:x.name==self.kernelFrom, [op for op in variables.global_variables(scope=None)]))[0]
+        else:
+            kernelFrom = list(filter(lambda x:x.name==self.varName, [op for op in variables.global_variables(scope=None)]))[0]
+        self.kernel = kernelFrom
+        # Save/Load information from tied layer (or database).
+        if self.varName == '':
+            kernel_shape = self.kernel.get_shape().as_list()
+            self.varName = kernelFrom.name
+            self.kernel_size = kernel_shape[:2]
+            self.filters = kernel_shape[2]
+        if self.output_padding is not None:
+            for stride, out_pad in zip(self.strides, self.output_padding):
+                if out_pad >= stride:
+                    raise ValueError('Stride ' + str(self.strides) + ' must be '
+                                     'greater than output padding ' +
+                                      str(self.output_padding))
+        if self.use_bias:
+            self.bias = self.add_weight(
+                    'bias',
+                    shape=(self.filters,),
+                    initializer=self.bias_initializer,
+                    regularizer=self.bias_regularizer,
+                    constraint=self.bias_constraint,
+                    trainable=True,
+                    dtype=self.dtype)
+        else:
+            self.bias = None
+        self.built = True
+
+    def get_config(self):
+        config = super(Conv2DTied, self).get_config()
+        config['varName'] = self.varName
+        config['tied_layer'] = ''
+        return config
 
 class _GroupConv(Layer):
     """Abstract nD group convolution layer (private, used as implementation base).
@@ -1837,7 +2316,6 @@ class _AConvTranspose(Layer):
                                     padding = self.padding,
                                     output_padding = self.output_padding,
                                     data_format = self.data_format,
-                                    dilation_rate = self.dilation_rate,
                                     activation = None,
                                     use_bias = self.use_bias,
                                     bias_initializer = bias_initializer,

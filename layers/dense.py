@@ -1,6 +1,6 @@
 '''
 ################################################################
-# Layers - Dense
+# Layers - Dense (deprecated)
 # @ Modern Deep Network Toolkits for Tensorflow-Keras
 # Yuchen Jin @ cainmagi@gmail.com
 # Requirements: (Pay attention to version)
@@ -25,7 +25,6 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import constraints
 from tensorflow.python.keras import initializers
 from tensorflow.python.keras import regularizers
-from tensorflow.python.keras.layers import deserialize as deserialize_layer  # pylint: disable=g-import-not-at-top
 from tensorflow.python.keras.engine.base_layer import Layer
 from tensorflow.python.ops import gen_math_ops
 from tensorflow.python.ops import nn
@@ -74,21 +73,24 @@ class DenseTied(Layer):
     """
 
     def __init__(self,
-                 tied_layer,
+                 tied_layer='',
                  activation=None,
                  use_bias=True,
                  bias_initializer='zeros',
                  bias_regularizer=None,
                  activity_regularizer=None,
                  bias_constraint=None,
+                 varName='', varShape=[],
                  **kwargs):
         if 'input_shape' not in kwargs and 'input_dim' in kwargs:
           kwargs['input_shape'] = (kwargs.pop('input_dim'),)
 
         super(DenseTied, self).__init__(
             activity_regularizer=regularizers.get(activity_regularizer), **kwargs)
-        assert isinstance(tied_layer, Layer)
-        self.tied_layer = tied_layer
+        if tied_layer != '':
+            self.kernelFrom = tied_layer.kernel.name
+        self.varName = varName
+        self.varShape = varShape
         self.activation = activations.get(activation)
         self.use_bias = use_bias
         self.bias_initializer = initializers.get(bias_initializer)
@@ -101,73 +103,73 @@ class DenseTied(Layer):
     def build(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         if tensor_shape.dimension_value(input_shape[-1]) is None:
-            raise ValueError('The last dimension of the inputs to `Dense` '
-                             'should be defined. Found `None`.')
+          raise ValueError('The last dimension of the inputs to `Dense` '
+                           'should be defined. Found `None`.')
         last_dim = tensor_shape.dimension_value(input_shape[-1])
         self.input_spec = InputSpec(min_ndim=2,
                                     axes={-1: last_dim})
-        self.kernel = K.transpose(self.tied_layer.kernel)
-        self.o_shape = self.kernel.get_shape().as_list()
-        if self.use_bias:
-            self.bias = self.add_weight(
-                'bias',
-                shape=[self.o_shape[-1],],
-                initializer=self.bias_initializer,
-                regularizer=self.bias_regularizer,
-                constraint=self.bias_constraint,
-                dtype=self.dtype,
-                trainable=True)
+        if self.varName == '':
+            kernelFrom = list(filter(lambda x:x.name==self.kernelFrom, [op for op in variables.global_variables(scope=None)]))[0]
+            self.kernel = K.transpose(kernelFrom)
+            self.o_shape = self.kernel.get_shape().as_list()
+            self.varName = kernelFrom.name
+            self.varShape = kernelFrom.get_shape().as_list()
         else:
-            self.bias = None
-        super(DenseTied, self).build(input_shape)
+            kernelFrom = list(filter(lambda x:x.name==self.varName, [op for op in variables.global_variables(scope=None)]))[0]
+            self.kernel = K.transpose(kernelFrom)
+            self.o_shape = self.kernel.get_shape().as_list()
+        if self.use_bias:
+          self.bias = self.add_weight(
+              'bias',
+              shape=[self.o_shape[-1],],
+              initializer=self.bias_initializer,
+              regularizer=self.bias_regularizer,
+              constraint=self.bias_constraint,
+              dtype=self.dtype,
+              trainable=True)
+        else:
+          self.bias = None
+        self.built = True
 
     def call(self, inputs):
         inputs = ops.convert_to_tensor(inputs)
         rank = common_shapes.rank(inputs)
         if rank > 2:
-            # Broadcasting is required for the inputs.
-            outputs = standard_ops.tensordot(inputs, self.kernel, [[rank - 1], [0]])
-            # Reshape the output back to the original ndim of the input.
-            if not context.executing_eagerly():
-                shape = inputs.get_shape().as_list()
-                output_shape = shape[:-1] + [self.o_shape]
-                outputs.set_shape(output_shape)
+          # Broadcasting is required for the inputs.
+          outputs = standard_ops.tensordot(inputs, self.kernel, [[rank - 1], [0]])
+          # Reshape the output back to the original ndim of the input.
+          if not context.executing_eagerly():
+            shape = inputs.get_shape().as_list()
+            output_shape = shape[:-1] + [self.o_shape]
+            outputs.set_shape(output_shape)
         else:
-            outputs = gen_math_ops.mat_mul(inputs, self.kernel)
+          outputs = gen_math_ops.mat_mul(inputs, self.kernel)
         if self.use_bias:
-            outputs = nn.bias_add(outputs, self.bias)
+          outputs = nn.bias_add(outputs, self.bias)
         if self.activation is not None:
-            return self.activation(outputs)  # pylint: disable=not-callable
+          return self.activation(outputs)  # pylint: disable=not-callable
         return outputs
 
     def compute_output_shape(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(2)
         if tensor_shape.dimension_value(input_shape[-1]) is None:
-            raise ValueError(
-                'The innermost dimension of input_shape must be defined, but saw: %s'
-                % input_shape)
+          raise ValueError(
+              'The innermost dimension of input_shape must be defined, but saw: %s'
+              % input_shape)
         return input_shape[:-1].concatenate(self.o_shape)
     
     def get_config(self):
         config = {
-            'tied_layer': {
-                'class_name': self.tied_layer.__class__.__name__,
-                'config': self.tied_layer.get_config()
-            },
+            'tied_layer': '',
             'activation': activations.serialize(self.activation),
             'use_bias': self.use_bias,
             'bias_initializer': initializers.serialize(self.bias_initializer),
             'bias_regularizer': regularizers.serialize(self.bias_regularizer),
             'activity_regularizer':
                 regularizers.serialize(self.activity_regularizer),
-            'bias_constraint': constraints.serialize(self.bias_constraint)
+            'bias_constraint': constraints.serialize(self.bias_constraint),
+            'varName': self.varName, 'varShape': self.varShape
         }
         base_config = super(DenseTied, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
-
-    @classmethod
-    def from_config(cls, config, custom_objects=None):
-        layer = deserialize_layer(
-            config.pop('tied_layer'), custom_objects=custom_objects)
-        return cls(layer, **config)
