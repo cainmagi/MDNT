@@ -14,6 +14,13 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.50-b # 2019/6/11
+# Comments:
+#   1. Fix a bug for implementing the channel_first mode for
+#      AConv in .layers.
+#   2. Finish InstanceGaussianNoise in .layers.
+#   3. Prepare the test for adding dropout to residual layers
+#      in .layers.
 # Version: 0.50 # 2019/6/11
 # Comments:
 #   1. Finish Conv1DTied, Conv2DTied, Conv3DTied in .layers.
@@ -110,7 +117,7 @@ from . import optimizers
 from . import layers
 from . import data
 
-__version__ = '0.50'
+__version__ = '0.50-b'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

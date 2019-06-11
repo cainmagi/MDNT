@@ -15,6 +15,7 @@ Now we have such progress on the semi-product:
     - [x] Wrapped default optimizers.
 - [ ] layers:
     - [x] Tied dense layer for the symmetric autoencoder.
+    - [x] Extended dropout and noise layers.
     - [x] Extened normalization layers.
     - [x] Group convolutional layers.
     - [x] Modern convolutional layers (support group convolution).
@@ -50,6 +51,12 @@ Now we have such progress on the semi-product:
 Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
+
+### 0.50-b @ 06/11/2019
+
+1. Fix a bug for implementing the channel_first mode for `AConv` in `.layers`.
+2. Finish `InstanceGaussianNoise` in `.layers`.
+3. Prepare the test for adding dropout to residual layers in `.layers`.
 
 ### 0.50 @ 06/11/2019
 

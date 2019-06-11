@@ -21,6 +21,9 @@
 # The norm-actv-conv structure is proved to be effective by 
 # this paper:
 #   https://arxiv.org/abs/1603.05027
+# Version: 0.18 # 2019/6/11
+# Comments:
+#   Fix a bug for normalization layers when channel_first.
 # Version: 0.15 # 2019/6/6
 # Comments:
 #   Enable the units to work with group convolution.
@@ -229,10 +232,15 @@ class NACUnit(Layer):
 
     def build(self, input_shape):
         next_shape = input_shape
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
         # Normalization
         if self.normalization and (not self.use_bias):
             if self.normalization.casefold() == 'batch':
-                self.layer_norm = BatchNormalization(gamma_initializer = self.gamma_initializer,
+                self.layer_norm = BatchNormalization(axis=channel_axis,
+                                                     gamma_initializer = self.gamma_initializer,
                                                      gamma_regularizer = self.gamma_regularizer,
                                                      gamma_constraint = self.gamma_constraint,
                                                      beta_initializer = self.beta_initializer,
@@ -240,7 +248,7 @@ class NACUnit(Layer):
                                                      beta_constraint = self.beta_constraint,
                                                      trainable=self.trainable)
             elif self.normalization.casefold() == 'inst':
-                self.layer_norm = InstanceNormalization(axis=-1,
+                self.layer_norm = InstanceNormalization(axis=channel_axis,
                                                      gamma_initializer = self.gamma_initializer,
                                                      gamma_regularizer = self.gamma_regularizer,
                                                      gamma_constraint = self.gamma_constraint,
@@ -249,7 +257,7 @@ class NACUnit(Layer):
                                                      beta_constraint = self.beta_constraint,
                                                      trainable=self.trainable)
             elif self.normalization.casefold() == 'group':
-                self.layer_norm = GroupNormalization(axis=-1, groups=self.groups,
+                self.layer_norm = GroupNormalization(axis=channel_axis, groups=self.groups,
                                                      gamma_initializer = self.gamma_initializer,
                                                      gamma_regularizer = self.gamma_regularizer,
                                                      gamma_constraint = self.gamma_constraint,
@@ -608,9 +616,14 @@ class NACUnitTranspose(Layer):
         input_shape = tensor_shape.TensorShape(input_shape)
         input_shape = input_shape.with_rank_at_least(self.rank + 2)
         next_shape = input_shape
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = -1
         if self.normalization and (not self.use_bias):
             if self.normalization.casefold() == 'batch':
-                self.layer_norm = BatchNormalization(gamma_initializer = self.gamma_initializer,
+                self.layer_norm = BatchNormalization(axis=channel_axis,
+                                                     gamma_initializer = self.gamma_initializer,
                                                      gamma_regularizer = self.gamma_regularizer,
                                                      gamma_constraint = self.gamma_constraint,
                                                      beta_initializer = self.beta_initializer,
@@ -618,7 +631,7 @@ class NACUnitTranspose(Layer):
                                                      beta_constraint = self.beta_constraint,
                                                      trainable=self.trainable)
             elif self.normalization.casefold() == 'inst':
-                self.layer_norm = InstanceNormalization(axis=-1,
+                self.layer_norm = InstanceNormalization(axis=channel_axis,
                                                      gamma_initializer = self.gamma_initializer,
                                                      gamma_regularizer = self.gamma_regularizer,
                                                      gamma_constraint = self.gamma_constraint,
@@ -627,7 +640,7 @@ class NACUnitTranspose(Layer):
                                                      beta_constraint = self.beta_constraint,
                                                      trainable=self.trainable)
             elif self.normalization.casefold() == 'group':
-                self.layer_norm = GroupNormalization(axis=-1, groups=self.groups,
+                self.layer_norm = GroupNormalization(axis=channel_axis, groups=self.groups,
                                                      gamma_initializer = self.gamma_initializer,
                                                      gamma_regularizer = self.gamma_regularizer,
                                                      gamma_constraint = self.gamma_constraint,

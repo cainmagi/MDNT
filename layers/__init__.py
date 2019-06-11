@@ -17,6 +17,7 @@
 
 # Import sub-modules
 from .dense import DenseTied
+from .dropout import InstanceGaussianNoise
 from .normalize import InstanceNormalization, GroupNormalization
 from .conv import AConv1D, AConv2D, AConv3D, AConv1DTranspose, AConv2DTranspose, AConv3DTranspose, GroupConv1D, GroupConv2D, GroupConv3D, Conv1DTied, Conv2DTied, Conv3DTied
 from .external import PyExternal
@@ -26,6 +27,7 @@ from .inception import Inception1D, Inception2D, Inception3D, Inception1DTranspo
 # Set layer dictionaries
 customObjects = {
     'DenseTied': DenseTied,
+    'InstanceGaussianNoise': InstanceGaussianNoise,
     'InstanceNormalization': InstanceNormalization,
     'GroupNormalization': GroupNormalization,
     'Conv1DTied': Conv1DTied,
