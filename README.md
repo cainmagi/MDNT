@@ -19,13 +19,14 @@ Now we have such progress on the semi-product:
     - [x] Group convolutional layers.
     - [x] Modern convolutional layers (support group convolution).
     - [x] Modern transposed convolutional layers (support group convolution).
-    - [ ] Tied and modern transposed convolutional layers for the symmetric autoencoder.
+    - [x] Tied and modern transposed convolutional layers for the symmetric autoencoder.
     - [x] Residual layers (or blocks) and their transposed versions.
     - [x] ResNeXt layers (or blocks) and their transposed versions.
     - [x] Inception-v4 layers (or blocks) and their transposed versions.
     - [x] InceptionRes-v2 layers (or blocks) and their transposed versions.
     - [x] InceptionPlus layers (or blocks) and their transposed versions.
     - [x] External interface for using generic python function.
+    - [ ] Droupout method options for all avaliable modern layers.
 - [ ] data:
     - [x] Basic h5py (HDF5) IO handles.
     - [ ] Basic SQLite IO handles.
