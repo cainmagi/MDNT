@@ -49,7 +49,7 @@
 #   https://arxiv.org/abs/1611.05431
 #
 # layers has been modified according to the residual-v2 theory.
-# Version: 0.37-b # 2019/6/7
+# Version: 0.37-b # 2019/6/11
 # Comments:
 #   Test to check the performance of applying droupout inside
 #   residual layer.
@@ -175,13 +175,14 @@ class _Residual(Layer):
     Arguments for dropout: (drop out would be only applied on the entrance
                             of conv. branch.)
         dropout: The dropout type, which could be
-            (1) None:  do not use dropout.
-            (2) plain: use tf.keras.layers.Dropout.
-            (3) add:   use scale-invariant addictive noise.
-                       (mdnt.layers.InstanceGaussianNoise)
-            (4) mul:   use multiplicative noise.
-                       (tf.keras.layers.GaussianDropout)
-            (5) alpha: use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
         dropout_rate: The drop probability. In `add` mode, it is used as
             maximal std. To learn more, please see the docstrings of each
             method.
@@ -484,7 +485,7 @@ class _Residual(Layer):
             'gamma_constraint': constraints.serialize(self.gamma_constraint),
             'groups': self.groups,
             'dropout': self.dropout,
-            'dropout_shape': self.dropout_shape,
+            'dropout_rate': self.dropout_rate,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
             'activity_regularizer': regularizers.serialize(self.sub_activity_regularizer),
@@ -546,13 +547,14 @@ class Residual1D(_Residual):
     Arguments for dropout: (drop out would be only applied on the entrance
                             of conv. branch.)
         dropout: The dropout type, which could be
-            (1) None:  do not use dropout.
-            (2) plain: use tf.keras.layers.Dropout.
-            (3) add:   use scale-invariant addictive noise.
-                       (mdnt.layers.InstanceGaussianNoise)
-            (4) mul:   use multiplicative noise.
-                       (tf.keras.layers.GaussianDropout)
-            (5) alpha: use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
         dropout_rate: The drop probability. In `add` mode, it is used as
             maximal std. To learn more, please see the docstrings of each
             method.
@@ -691,13 +693,14 @@ class Residual2D(_Residual):
     Arguments for dropout: (drop out would be only applied on the entrance
                             of conv. branch.)
         dropout: The dropout type, which could be
-            (1) None:  do not use dropout.
-            (2) plain: use tf.keras.layers.Dropout.
-            (3) add:   use scale-invariant addictive noise.
-                       (mdnt.layers.InstanceGaussianNoise)
-            (4) mul:   use multiplicative noise.
-                       (tf.keras.layers.GaussianDropout)
-            (5) alpha: use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
         dropout_rate: The drop probability. In `add` mode, it is used as
             maximal std. To learn more, please see the docstrings of each
             method.
@@ -843,13 +846,14 @@ class Residual3D(_Residual):
     Arguments for dropout: (drop out would be only applied on the entrance
                             of conv. branch.)
         dropout: The dropout type, which could be
-            (1) None:  do not use dropout.
-            (2) plain: use tf.keras.layers.Dropout.
-            (3) add:   use scale-invariant addictive noise.
-                       (mdnt.layers.InstanceGaussianNoise)
-            (4) mul:   use multiplicative noise.
-                       (tf.keras.layers.GaussianDropout)
-            (5) alpha: use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
         dropout_rate: The drop probability. In `add` mode, it is used as
             maximal std. To learn more, please see the docstrings of each
             method.
@@ -1023,13 +1027,14 @@ class _ResidualTranspose(Layer):
     Arguments for dropout: (drop out would be only applied on the entrance
                             of conv. branch.)
         dropout: The dropout type, which could be
-            (1) None:  do not use dropout.
-            (2) plain: use tf.keras.layers.Dropout.
-            (3) add:   use scale-invariant addictive noise.
-                       (mdnt.layers.InstanceGaussianNoise)
-            (4) mul:   use multiplicative noise.
-                       (tf.keras.layers.GaussianDropout)
-            (5) alpha: use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
         dropout_rate: The drop probability. In `add` mode, it is used as
             maximal std. To learn more, please see the docstrings of each
             method.
@@ -1441,7 +1446,7 @@ class _ResidualTranspose(Layer):
             'gamma_constraint': constraints.serialize(self.gamma_constraint),
             'groups': self.groups,
             'dropout': self.dropout,
-            'dropout_shape': self.dropout_shape,
+            'dropout_rate': self.dropout_rate,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
             'activity_regularizer': regularizers.serialize(self.activity_regularizer),
@@ -1531,13 +1536,14 @@ class Residual1DTranspose(_ResidualTranspose):
     Arguments for dropout: (drop out would be only applied on the entrance
                             of conv. branch.)
         dropout: The dropout type, which could be
-            (1) None:  do not use dropout.
-            (2) plain: use tf.keras.layers.Dropout.
-            (3) add:   use scale-invariant addictive noise.
-                       (mdnt.layers.InstanceGaussianNoise)
-            (4) mul:   use multiplicative noise.
-                       (tf.keras.layers.GaussianDropout)
-            (5) alpha: use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
         dropout_rate: The drop probability. In `add` mode, it is used as
             maximal std. To learn more, please see the docstrings of each
             method.
@@ -1710,13 +1716,14 @@ class Residual2DTranspose(_ResidualTranspose):
     Arguments for dropout: (drop out would be only applied on the entrance
                             of conv. branch.)
         dropout: The dropout type, which could be
-            (1) None:  do not use dropout.
-            (2) plain: use tf.keras.layers.Dropout.
-            (3) add:   use scale-invariant addictive noise.
-                       (mdnt.layers.InstanceGaussianNoise)
-            (4) mul:   use multiplicative noise.
-                       (tf.keras.layers.GaussianDropout)
-            (5) alpha: use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
         dropout_rate: The drop probability. In `add` mode, it is used as
             maximal std. To learn more, please see the docstrings of each
             method.
@@ -1896,13 +1903,14 @@ class Residual3DTranspose(_ResidualTranspose):
     Arguments for dropout: (drop out would be only applied on the entrance
                             of conv. branch.)
         dropout: The dropout type, which could be
-            (1) None:  do not use dropout.
-            (2) plain: use tf.keras.layers.Dropout.
-            (3) add:   use scale-invariant addictive noise.
-                       (mdnt.layers.InstanceGaussianNoise)
-            (4) mul:   use multiplicative noise.
-                       (tf.keras.layers.GaussianDropout)
-            (5) alpha: use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
         dropout_rate: The drop probability. In `add` mode, it is used as
             maximal std. To learn more, please see the docstrings of each
             method.

@@ -28,7 +28,7 @@
 # Version: 0.58 # 2019/6/11
 # Comments:
 #   Fix a bug for normalization layers inside AConv when
-#   channel_first.
+#   channels_first.
 # Version: 0.55 # 2019/6/6
 # Comments:
 #   A failed try for quick group convolution (QGroupConv), move

@@ -17,7 +17,7 @@
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.engine.base_layer import Layer
 
-from tensorflow.python.keras.layers.core import Dropout
+from tensorflow.python.keras.layers.core import Dropout, SpatialDropout1D, SpatialDropout2D, SpatialDropout3D
 from tensorflow.python.keras.layers.noise import GaussianDropout, AlphaDropout
 
 from .. import compat
@@ -51,6 +51,8 @@ class InstanceGaussianNoise(Layer):
         alpha: float, maximal standard deviation of the noise 
             distribution. For example, when alpha = 0.3, it means
             the noise would be at most 30% of the input. 
+        epsilon: Small float added to variance to avoid dividing by
+            zero.
     # Input shape
         Arbitrary. Use the keyword argument `input_shape`
         (tuple of integers, does not include the samples axis)
@@ -61,11 +63,13 @@ class InstanceGaussianNoise(Layer):
     def __init__(self,
                  axis=None,
                  alpha=0.3,
+                 epsilon=1e-3,
                  **kwargs):
         super(InstanceGaussianNoise, self).__init__(**kwargs)
         self.supports_masking = True
         self.axis = axis
         self.alpha = alpha
+        self.epsilon = epsilon
 
     def build(self, input_shape):
         ndim = len(input_shape)
@@ -98,7 +102,7 @@ class InstanceGaussianNoise(Layer):
         normed = (inputs - mean) / stddev
 
         def noised():
-            eps = K.random_uniform(shape=1, maxval=self.alpha)
+            eps = K.random_uniform(shape=[1], maxval=self.alpha)
             return inputs + K.random_normal(shape=K.shape(inputs),
                                             mean=0.,
                                             stddev=eps)
@@ -118,7 +122,7 @@ class InstanceGaussianNoise(Layer):
         base_config = super(InstanceGaussianNoise, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
-def return_dropout(dropout_type, dropout_rate, axis=-1):
+def return_dropout(dropout_type, dropout_rate, axis=-1, rank=None):
     if dropout_type is None:
         return None
     elif dropout_type == 'plain':
@@ -129,5 +133,18 @@ def return_dropout(dropout_type, dropout_rate, axis=-1):
         return GaussianDropout(dropout_rate)
     elif dropout_type == 'alpha':
         return AlphaDropout(dropout_rate)
+    elif dropout_type == 'spatial':
+        if axis == 1:
+            dformat = 'channels_first'
+        else:
+            dformat = 'channels_last'
+        if rank == 1:
+            return SpatialDropout1D(dropout_rate)
+        elif rank == 2:
+            return SpatialDropout2D(dropout_rate, data_format=dformat)
+        elif rank == 3:
+            return SpatialDropout3D(dropout_rate, data_format=dformat)
+        else:
+            return None
     else:
         return None
