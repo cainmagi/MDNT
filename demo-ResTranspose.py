@@ -19,6 +19,18 @@
 # ```
 # to perform the test. Here we use `inst` to set instance
 # normalization.
+# As a comparison, to check the performance of dropout, use
+# ```
+# python demo-ResTranspose.py -m tr -s trinst_dp -mm inst -md add
+# ```
+# to train the network. Then use
+# ```
+# python demo-ResTranspose.py -m ts -s trinst_dp -mm inst -md add -rd model-...
+# ```
+# to perform the test.
+# Version: 1.00 # 2019/6/11
+# Comments:
+#   Enable the tests for dropout methods.
 # Version: 1.00 # 2019/5/30
 # Comments:
 #   Create this project.
@@ -75,7 +87,7 @@ def mean_loss_func(lossfunc, name=None, *args, **kwargs):
         wrap_func.__name__ = name
     return wrap_func
 
-def build_model(mode='bias'):
+def build_model(mode='bias', dropout=None):
     # Make configuration
     mode = mode.casefold()
     if not mode in ['batch', 'inst', 'group']:
@@ -93,17 +105,17 @@ def build_model(mode='bias'):
     conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(input_img)
     for i in range(3):
         conv_1 = mdnt.layers.Residual2D(channel_1, (3, 3), normalization=mode, activation='prelu')(conv_1)
-    conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_1)
+    conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', dropout=dropout)(conv_1)
     for i in range(3):
         conv_2 = mdnt.layers.Residual2D(channel_2, (3, 3), normalization=mode, activation='prelu')(conv_2)
-    conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_2)
+    conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', dropout=dropout)(conv_2)
     for i in range(3):
         conv_3 = mdnt.layers.Residual2D(channel_3, (3, 3), normalization=mode, activation='prelu')(conv_3)
     # Create decode layers
-    deconv_1 = mdnt.layers.Residual2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu')(conv_3)
+    deconv_1 = mdnt.layers.Residual2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu', dropout=dropout)(conv_3)
     for i in range(3):
         deconv_1 = mdnt.layers.Residual2D(channel_2, (3, 3), normalization=mode, activation='prelu')(deconv_1)
-    deconv_2 = mdnt.layers.Residual2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu')(deconv_1)
+    deconv_2 = mdnt.layers.Residual2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu', dropout=dropout)(deconv_1)
     for i in range(3):
         deconv_2 = mdnt.layers.Residual2D(channel_1, (3, 3), normalization=mode, activation='prelu')(deconv_2)
     deconv_3 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), output_mshape=input_img.get_shape(), normalization='bias', padding='same', activation=tf.nn.sigmoid)(deconv_2)
@@ -148,6 +160,18 @@ if __name__ == '__main__':
             batch: use batch normalization.
             inst : use instance normalization.
             group: use group normalization.
+        '''
+    )
+
+    parser.add_argument(
+        '-md', '--dropoutMode', default=None, metavar='str',
+        help='''\
+        The mode of dropout type in this demo.
+            None:  do not use dropout.
+            plain: use tf.keras.layers.Dropout.
+            add:   use scale-invariant addictive noise.
+            mul:   use multiplicative noise.
+            alpha: use alpha dropout.
         '''
     )
     
@@ -249,7 +273,7 @@ if __name__ == '__main__':
     
     if args.mode.casefold() == 'tr' or args.mode.casefold() == 'train':
         x_train, x_test, x_train_noisy, x_test_noisy = load_data()
-        denoiser = build_model(args.modelMode)
+        denoiser = build_model(args.modelMode, args.dropoutMode)
         if args.modelMode.casefold() == 'bias':
             denoiser.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
                                 loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'))
@@ -267,7 +291,7 @@ if __name__ == '__main__':
         checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_loss:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
         logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs/', args.savedPath), 
-            histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=5)
+            histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=10)
         if args.reduceLR:
             reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=args.learningRate*0.1, verbose=1)
             get_callbacks = [checkpointer, logger, reduce_lr]

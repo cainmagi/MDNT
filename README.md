@@ -60,6 +60,7 @@ The following demos are working for denoising with MNIST data set.
 
 1. Update the tests (`demo-AEConvTied`, `demo-AEConv1DTied`) for tied convolutional (`Conv2DTied`, `Conv1DTied`) layers.
 2. Add tensorboard logger for `demo-AEdense`.
+3. Enable `demo-ResTranspose` to work on the test for dropout methods.
 
 ### @ 06/09/2019
 
