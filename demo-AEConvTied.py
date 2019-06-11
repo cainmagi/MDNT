@@ -2,7 +2,7 @@
 # -*- coding: UTF8-*- #
 '''
 ####################################################################
-# Demo for dense based autoencoder
+# Demo for conv2d based autoencoder
 # Yuchen Jin @ cainmagi@gmail.com
 # Requirements: (Pay attention to version)
 #   python 3.6
@@ -12,21 +12,21 @@
 # Check the performances by:
 # (1) Train and save the split model:
 # ```
-# python demo-AEdense.py -m tr -s model
+# python demo-AEConvTied.py -m tr -s conv2d
 # ```
 # (2) Train and save the tied model:
 # ```
-# python demo-AEdense.py -m tr -s tmodel -mm tied
+# python demo-AEConvTied.py -m tr -s tconv2d -mm tied
 # ```
 # (3) Test with saved split model:
 # ```
-# python demo-AEdense.py -m ts -s model -rd model-...
+# python demo-AEConvTied.py -m ts -s conv2d -rd model-...
 # ```
 # (4) Test with saved tied model:
 # ```
-# python demo-AEdense.py -m ts -s tmodel -rd model-... -mm tied
+# python demo-AEConvTied.py -m ts -s tconv2d -rd model-... -mm tied
 # ```
-# Version: 1.00 # 2019/3/24
+# Version: 1.00 # 2019/6/11
 # Comments:
 #   Create this project.
 ####################################################################
@@ -73,30 +73,33 @@ def plot_sample(x_test, x_input=None, decoded_imgs=None, n=10):
             row += 1
             plot_row(decoded_imgs, row, n, i)
     plt.show()
+
+def mean_loss_func(lossfunc, name=None, *args, **kwargs):
+    def wrap_func(*args, **kwargs):
+        return tf.keras.backend.mean(lossfunc(*args, **kwargs))
+    if name is not None:
+        wrap_func.__name__ = name
+    return wrap_func
     
 def build_model(mode='split'):
     # Build the model
-    encoding_dim_1 = 256  # 256 floats
-    encoding_dim_2 = 32  # 32 floats -> compression of factor 24.5, assuming the input is 784 floats
+    channel_1 = 64  # 64 channels
+    channel_2 = 128  # 128 channels
     # this is our input placeholder
-    input_img = tf.keras.layers.Input(shape=(784,))
+    input_img = tf.keras.layers.Input(shape=(28, 28, 1))
     # Create encode layers
-    lay_enc_1 = tf.keras.layers.Dense(encoding_dim_1, activation=None)
-    lay_enc_2 = tf.keras.layers.Dense(encoding_dim_2, activation=None)
+    lay_enc_1 = tf.keras.layers.Conv2D(channel_1, (3, 3), strides=(2, 2), activation='relu', padding='same')
+    lay_enc_2 = tf.keras.layers.Conv2D(channel_2, (3, 3), strides=(2, 2), activation='relu', padding='same')
     # "encoded" is the encoded representation of the input
     encoded_1 = lay_enc_1(input_img)
-    encoded_1 = tf.keras.layers.PReLU(shared_axes=[1])(encoded_1)
     encoded_2 = lay_enc_2(encoded_1)
-    encoded_2 = tf.keras.layers.PReLU(shared_axes=[1])(encoded_2)
     # "decoded" is the lossy reconstruction of the input
     if mode == 'split':
-        decoded_1 = tf.keras.layers.Dense(encoding_dim_1, activation=None)(encoded_2)
-        decoded_1 = tf.keras.layers.PReLU(shared_axes=[1])(decoded_1)
-        decoded_2 = tf.keras.layers.Dense(784, activation='sigmoid')(decoded_1)
+        decoded_1 = tf.keras.layers.Conv2DTranspose(channel_1, (3, 3), strides=(2, 2), activation='relu', padding='same')(encoded_2)
+        decoded_2 = tf.keras.layers.Conv2DTranspose(1, (3, 3), strides=(2, 2), activation='sigmoid', padding='same')(decoded_1)
     else:
-        decoded_1 = mdnt.layers.dense.DenseTied(lay_enc_2, activation=None)(encoded_2)
-        decoded_1 = tf.keras.layers.PReLU(shared_axes=[1])(decoded_1)
-        decoded_2 = mdnt.layers.dense.DenseTied(lay_enc_1, activation='sigmoid')(decoded_1)
+        decoded_1 = mdnt.layers.Conv2DTied(lay_enc_2, activation='relu', padding='same')(encoded_2)
+        decoded_2 = mdnt.layers.Conv2DTied(lay_enc_1, activation='sigmoid', padding='same')(decoded_1)
 
     # this model maps an input to its reconstruction
     autoencoder = tf.keras.models.Model(input_img, decoded_2)
@@ -225,8 +228,8 @@ if __name__ == '__main__':
         (x_train, _), (x_test, _) = mnist.load_data()
         x_train = x_train.astype('float32') / 255.
         x_test = x_test.astype('float32') / 255.
-        x_train = x_train.reshape(len(x_train), np.prod(x_train.shape[1:]))
-        x_test = x_test.reshape(len(x_test), np.prod(x_test.shape[1:]))
+        x_train = x_train.reshape(len(x_train), 28, 28, 1)
+        x_test = x_test.reshape(len(x_test), 28, 28, 1)
         #plot_sample(x_train, n=10)
         
         # Add noise
@@ -242,7 +245,7 @@ if __name__ == '__main__':
         with tf.name_scope(args.modelName):
             autoencoder = build_model(args.modelMode)
             autoencoder.compile(optimizer=mdnt.optimizers.optimizer('amsgrad', l_rate=args.learningRate), 
-                                loss=tf.keras.losses.binary_crossentropy)
+                                loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'))
         
         folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))
         if os.path.abspath(folder) == '.' or folder == '':
@@ -264,7 +267,7 @@ if __name__ == '__main__':
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
         with tf.name_scope(args.modelName):
-            autoencoder = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5')
+            autoencoder = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})
         autoencoder.summary()
         _, x_test, _, x_test_noisy = load_data()
         decoded_imgs = autoencoder.predict(x_test_noisy[:args.testBatchNum, :])

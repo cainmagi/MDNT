@@ -36,6 +36,8 @@ The following demos are working for denoising with MNIST data set.
 
 * `demo-AEdense`: Tied autoencoder based on dense layers.
 * `demo-normalize`: Normalization layers.
+* `demo-AEConvTied`: Tied autoencoder based on trivial convolutional layers.
+* `demo-AEConv1DTied`: Tied autoencoder based on trivial 1D convolutional layers.
 * `demo-GroupConv`: Plain group convolutional layers (without normalization).
 * `demo-AConv`: Modern convolutional layers.
 * `demo-AConvTranspose`: Autoencoder based on modern convolutional layers.
@@ -54,6 +56,11 @@ The following demos are working for denoising with MNIST data set.
 
 ## Update records
 
+### @ 06/11/2019
+
+1. Update the tests (`demo-AEConvTied`, `demo-AEConv1DTied`) for tied convolutional (`Conv2DTied`, `Conv1DTied`) layers.
+2. Add tensorboard logger for `demo-AEdense`.
+
 ### @ 06/09/2019
 
 1. Update the test (`demo-InceptPlusTranspose`) for inception plus (`Inceptplus`) layers.
@@ -63,12 +70,12 @@ The following demos are working for denoising with MNIST data set.
 ### @ 06/07/2019
 
 1. Solve the memory collision problem in `demo-ResNeXtTranspose` for ResNeXt (`Resnext`) layers.
-2. Update the test (`demo-AGroupConvTranspose`) for modern group convolution (`AConv` with `lgroups`) layers.
+2. Update the test (`demo-AGroupConvTranspose`) for modern group convolutional (`AConv` with `lgroups`) layers.
 
 ### @ 06/05/2019
 
 1. Update the test (`demo-ResNeXtTranspose`) for ResNeXt (`Resnext`) layers. (Current codes have memory collision.)
-2. Update the test (`demo-GroupConv`) for group convolution (`GroupConv`) layers.
+2. Update the test (`demo-GroupConv`) for group convolutional (`GroupConv`) layers.
 
 ### @ 06/04/2019
 
