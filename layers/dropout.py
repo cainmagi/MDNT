@@ -126,24 +126,24 @@ def return_dropout(dropout_type, dropout_rate, axis=-1, rank=None):
     if dropout_type is None:
         return None
     elif dropout_type == 'plain':
-        return Dropout(dropout_rate)
+        return Dropout(rate=dropout_rate)
     elif dropout_type == 'add':
         return InstanceGaussianNoise(axis=axis, alpha=dropout_rate)
     elif dropout_type == 'mul':
-        return GaussianDropout(dropout_rate)
+        return GaussianDropout(rate=dropout_rate)
     elif dropout_type == 'alpha':
-        return AlphaDropout(dropout_rate)
+        return AlphaDropout(rate=dropout_rate)
     elif dropout_type == 'spatial':
         if axis == 1:
             dformat = 'channels_first'
         else:
             dformat = 'channels_last'
         if rank == 1:
-            return SpatialDropout1D(dropout_rate)
+            return SpatialDropout1D(rate=dropout_rate)
         elif rank == 2:
-            return SpatialDropout2D(dropout_rate, data_format=dformat)
+            return SpatialDropout2D(rate=dropout_rate, data_format=dformat)
         elif rank == 3:
-            return SpatialDropout3D(dropout_rate, data_format=dformat)
+            return SpatialDropout3D(rate=dropout_rate, data_format=dformat)
         else:
             return None
     else:
