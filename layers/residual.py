@@ -49,6 +49,11 @@
 #   https://arxiv.org/abs/1611.05431
 #
 # layers has been modified according to the residual-v2 theory.
+# Version: 0.40 # 2019/6/12
+# Comments:
+#   1. Fix the bug for calculating spatial dropout.
+#   2. Enable ResNeXt to work with dropout.
+#   3. Strengthen the compatibility.
 # Version: 0.37-b # 2019/6/11
 # Comments:
 #   Test to check the performance of applying droupout inside
@@ -327,11 +332,10 @@ class _Residual(Layer):
                           _high_activation=None,
                           trainable=self.trainable)
             self.layer_branch_left.build(input_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_left) # for compatibility
             left_shape = self.layer_branch_left.compute_output_shape(input_shape)
         # Right branch, with dropout
-        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis)
+        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis, rank=self.rank)
         if self.layer_dropout is not None:
             self.layer_dropout.build(input_shape)
             right_shape = self.layer_dropout.compute_output_shape(input_shape)
@@ -361,8 +365,7 @@ class _Residual(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
         self.layer_first.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_first._trainable_weights)
+        compat.collect_properties(self, self.layer_first) # for compatibility
         right_shape = self.layer_first.compute_output_shape(right_shape)
         # Repeat blocks by depth number
         for i in range(self.depth):
@@ -394,8 +397,7 @@ class _Residual(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
             layer_middle.build(right_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle._trainable_weights)
+            compat.collect_properties(self, layer_middle) # for compatibility
             right_shape = layer_middle.compute_output_shape(right_shape)
             setattr(self, 'layer_middle_{0:02d}'.format(i), layer_middle)
         self.layer_last = NACUnit(rank = self.rank,
@@ -423,8 +425,7 @@ class _Residual(Layer):
                           _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_last.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_last._trainable_weights)
+        compat.collect_properties(self, self.layer_last) # for compatibility
         right_shape = self.layer_last.compute_output_shape(right_shape)
         self.layer_merge = Add()
         self.layer_merge.build([left_shape, right_shape])
@@ -1265,11 +1266,10 @@ class _ResidualTranspose(Layer):
                           _high_activation=None,
                           trainable=self.trainable)
             self.layer_branch_left.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_left) # for compatibility
             left_shape = self.layer_branch_left.compute_output_shape(next_shape)
         # Right branch, with dropout
-        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis)
+        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis, rank=self.rank)
         if self.layer_dropout is not None:
             self.layer_dropout.build(next_shape)
             right_shape = self.layer_dropout.compute_output_shape(next_shape)
@@ -1296,8 +1296,7 @@ class _ResidualTranspose(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
         self.layer_first.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_first._trainable_weights)
+        compat.collect_properties(self, self.layer_first) # for compatibility
         right_shape = self.layer_first.compute_output_shape(right_shape)
         # Repeat blocks by depth number
         for i in range(self.depth):
@@ -1329,8 +1328,7 @@ class _ResidualTranspose(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
             layer_middle.build(right_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle._trainable_weights)
+            compat.collect_properties(self, layer_middle) # for compatibility
             right_shape = layer_middle.compute_output_shape(right_shape)
             setattr(self, 'layer_middle_{0:02d}'.format(i), layer_middle)
         self.layer_last = NACUnit(rank = self.rank,
@@ -1355,8 +1353,7 @@ class _ResidualTranspose(Layer):
                           _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_last.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_last._trainable_weights)
+        compat.collect_properties(self, self.layer_last) # for compatibility
         right_shape = self.layer_last.compute_output_shape(right_shape)
         self.layer_merge = Add()
         self.layer_merge.build([left_shape, right_shape])
@@ -2063,6 +2060,20 @@ class _Resnext(Layer):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -2094,6 +2105,8 @@ class _Resnext(Layer):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -2139,6 +2152,9 @@ class _Resnext(Layer):
         self.beta_regularizer = regularizers.get(beta_regularizer)
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
+        # Inherit from mdnt.layers.dropout
+        self.dropout = dropout
+        self.dropout_rate = dropout_rate
         # Inherit from keras.engine.Layer
         if _high_activation is not None:
             activation = _high_activation
@@ -2212,10 +2228,16 @@ class _Resnext(Layer):
                           _high_activation=None,
                           trainable=self.trainable)
             self.layer_branch_left.build(input_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_left) # for compatibility
             left_shape = self.layer_branch_left.compute_output_shape(input_shape)
         # The right branch is divided into many groups
+        # Right branch, with dropout
+        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis, rank=self.rank)
+        if self.layer_dropout is not None:
+            self.layer_dropout.build(input_shape)
+            right_shape = self.layer_dropout.compute_output_shape(input_shape)
+        else:
+            right_shape = input_shape
         self.layer_first = NACUnit(rank = self.rank,
                         filters = wholeLfilters,
                         kernel_size = 1,
@@ -2239,10 +2261,9 @@ class _Resnext(Layer):
                         activity_regularizer=self.sub_activity_regularizer,
                         _high_activation=self.high_activation,
                         trainable=self.trainable)
-        self.layer_first.build(input_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_first._trainable_weights)
-        right_shape = self.layer_first.compute_output_shape(input_shape)
+        self.layer_first.build(right_shape)
+        compat.collect_properties(self, self.layer_first) # for compatibility
+        right_shape = self.layer_first.compute_output_shape(right_shape)
         # Repeat blocks by depth number
         for i in range(self.depth):
             if i == 0:
@@ -2274,8 +2295,7 @@ class _Resnext(Layer):
                                    _high_activation=self.high_activation,
                                    trainable=self.trainable)
             layer_middle.build(right_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle._trainable_weights)
+            compat.collect_properties(self, layer_middle) # for compatibility
             right_shape = layer_middle.compute_output_shape(right_shape)
             setattr(self, 'layer_middle_{0:02d}'.format(i+1), layer_middle)
         self.layer_last = NACUnit(rank = self.rank,
@@ -2303,8 +2323,7 @@ class _Resnext(Layer):
                           _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_last.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_last._trainable_weights)
+        compat.collect_properties(self, self.layer_last) # for compatibility
         right_shape = self.layer_last.compute_output_shape(right_shape)
         self.layer_merge = Add()
         self.layer_merge.build([left_shape, right_shape])
@@ -2315,7 +2334,11 @@ class _Resnext(Layer):
             branch_left = self.layer_branch_left(inputs)
         else:
             branch_left = inputs
-        branch_right = self.layer_first(inputs)
+        if self.layer_dropout is not None:
+            branch_right = self.layer_dropout(inputs)
+        else:
+            branch_right = inputs
+        branch_right = self.layer_first(branch_right)
         for i in range(self.depth):
             layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i+1))
             branch_right = layer_middle(branch_right)
@@ -2328,7 +2351,11 @@ class _Resnext(Layer):
             branch_left_shape = self.layer_branch_left.compute_output_shape(input_shape)
         else:
             branch_left_shape = input_shape
-        branch_right_shape = self.layer_first.compute_output_shape(input_shape)
+        if self.layer_dropout is not None:
+            branch_right_shape = self.layer_dropout.compute_output_shape(input_shape)
+        else:
+            branch_right_shape = input_shape
+        branch_right_shape = self.layer_first.compute_output_shape(branch_right_shape)
         for i in range(self.depth):
             layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i+1))
             branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
@@ -2357,6 +2384,8 @@ class _Resnext(Layer):
             'beta_constraint': constraints.serialize(self.beta_constraint),
             'gamma_constraint': constraints.serialize(self.gamma_constraint),
             'groups': self.groups,
+            'dropout': self.dropout,
+            'dropout_rate': self.dropout_rate,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
             'activity_regularizer': regularizers.serialize(self.sub_activity_regularizer),
@@ -2418,6 +2447,20 @@ class Resnext1D(_Resnext):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -2456,6 +2499,8 @@ class Resnext1D(_Resnext):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -2478,6 +2523,8 @@ class Resnext1D(_Resnext):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -2550,6 +2597,20 @@ class Resnext2D(_Resnext):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -2593,6 +2654,8 @@ class Resnext2D(_Resnext):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -2615,6 +2678,8 @@ class Resnext2D(_Resnext):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -2688,6 +2753,20 @@ class Resnext3D(_Resnext):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -2736,6 +2815,8 @@ class Resnext3D(_Resnext):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -2758,6 +2839,8 @@ class Resnext3D(_Resnext):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -2848,6 +2931,20 @@ class _ResnextTranspose(Layer):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -2882,6 +2979,8 @@ class _ResnextTranspose(Layer):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -2935,6 +3034,9 @@ class _ResnextTranspose(Layer):
         self.beta_regularizer = regularizers.get(beta_regularizer)
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
+        # Inherit from mdnt.layers.dropout
+        self.dropout = dropout
+        self.dropout_rate = dropout_rate
         # Inherit from keras.engine.Layer
         if _high_activation is not None:
             activation = _high_activation
@@ -3083,10 +3185,16 @@ class _ResnextTranspose(Layer):
                           _high_activation=None,
                           trainable=self.trainable)
             self.layer_branch_left.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_left) # for compatibility
             left_shape = self.layer_branch_left.compute_output_shape(next_shape)
         # The right branch is divided into many groups
+        # Right branch, with dropout
+        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis, rank=self.rank)
+        if self.layer_dropout is not None:
+            self.layer_dropout.build(next_shape)
+            right_shape = self.layer_dropout.compute_output_shape(next_shape)
+        else:
+            right_shape = next_shape
         self.layer_first = NACUnit(rank = self.rank,
                         filters = wholeLfilters,
                         kernel_size = 1,
@@ -3110,10 +3218,9 @@ class _ResnextTranspose(Layer):
                         activity_regularizer=self.sub_activity_regularizer,
                         _high_activation=self.high_activation,
                         trainable=self.trainable)
-        self.layer_first.build(next_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_first._trainable_weights)
-        right_shape = self.layer_first.compute_output_shape(next_shape)
+        self.layer_first.build(right_shape)
+        compat.collect_properties(self, self.layer_first) # for compatibility
+        right_shape = self.layer_first.compute_output_shape(right_shape)
         # Repeat blocks by depth number
         for i in range(self.depth):
             if i == 0:
@@ -3145,8 +3252,7 @@ class _ResnextTranspose(Layer):
                                    _high_activation=self.high_activation,
                                    trainable=self.trainable)
             layer_middle.build(right_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle._trainable_weights)
+            compat.collect_properties(self, layer_middle) # for compatibility
             right_shape = layer_middle.compute_output_shape(right_shape)
             setattr(self, 'layer_middle_{0:02d}'.format(i+1), layer_middle)
         self.layer_last = NACUnit(rank = self.rank,
@@ -3171,8 +3277,7 @@ class _ResnextTranspose(Layer):
                           _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_last.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_last._trainable_weights)
+        compat.collect_properties(self, self.layer_last) # for compatibility
         right_shape = self.layer_last.compute_output_shape(right_shape)
         self.layer_merge = Add()
         self.layer_merge.build([left_shape, right_shape])
@@ -3200,7 +3305,11 @@ class _ResnextTranspose(Layer):
             branch_left = self.layer_branch_left(outputs)
         else:
             branch_left = outputs
-        branch_right = self.layer_first(outputs)
+        if self.layer_dropout is not None:
+            branch_right = self.layer_dropout(outputs)
+        else:
+            branch_right = outputs
+        branch_right = self.layer_first(branch_right)
         for i in range(self.depth):
             layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i+1))
             branch_right = layer_middle(branch_right)
@@ -3220,7 +3329,11 @@ class _ResnextTranspose(Layer):
             branch_left_shape = self.layer_branch_left.compute_output_shape(next_shape)
         else:
             branch_left_shape = next_shape
-        branch_right_shape = self.layer_first.compute_output_shape(next_shape)
+        if self.layer_dropout is not None:
+            branch_right_shape = self.layer_dropout.compute_output_shape(next_shape)
+        else:
+            branch_right_shape = next_shape
+        branch_right_shape = self.layer_first.compute_output_shape(branch_right_shape)
         for i in range(self.depth):
             layer_middle = getattr(self, 'layer_middle_{0:02d}'.format(i+1))
             branch_right_shape = layer_middle.compute_output_shape(branch_right_shape)
@@ -3254,6 +3367,8 @@ class _ResnextTranspose(Layer):
             'beta_constraint': constraints.serialize(self.beta_constraint),
             'gamma_constraint': constraints.serialize(self.gamma_constraint),
             'groups': self.groups,
+            'dropout': self.dropout,
+            'dropout_rate': self.dropout_rate,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
             'activity_regularizer': regularizers.serialize(self.activity_regularizer),
@@ -3339,6 +3454,20 @@ class Resnext1DTranspose(_ResnextTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -3378,6 +3507,8 @@ class Resnext1DTranspose(_ResnextTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -3403,6 +3534,8 @@ class Resnext1DTranspose(_ResnextTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -3500,6 +3633,20 @@ class Resnext2DTranspose(_ResnextTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -3545,6 +3692,8 @@ class Resnext2DTranspose(_ResnextTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -3570,6 +3719,8 @@ class Resnext2DTranspose(_ResnextTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -3668,6 +3819,20 @@ class Resnext3DTranspose(_ResnextTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -3715,6 +3880,8 @@ class Resnext3DTranspose(_ResnextTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -3740,6 +3907,8 @@ class Resnext3DTranspose(_ResnextTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),

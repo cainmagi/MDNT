@@ -14,6 +14,15 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.54 # 2019/6/12
+# Comments:
+#   1. Add dropout options to all advanced blocks (including
+#      residual, ResNeXt, inception, incept-res and incept-
+#      plus).
+#   2. Strengthen the compatibility.
+#   3. Fix minor bugs for spatial dropout in 0.50-b.
+#   4. Thanks to GOD! .layers has been finished, although it
+#      may require modification in the future.
 # Version: 0.50-b # 2019/6/11
 # Comments:
 #   1. Fix a bug for implementing the channel_first mode for
@@ -117,7 +126,7 @@ from . import optimizers
 from . import layers
 from . import data
 
-__version__ = '0.50-b'
+__version__ = '0.54'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

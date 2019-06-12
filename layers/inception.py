@@ -30,7 +30,11 @@
 # ture of such a scheme is as
 #   Input + "Inception-v4 plain block"
 # We have also implemented the InceptRes-v4 in this module.
-# Version: 0.4 # 2019/6/9
+# Version: 0.45 # 2019/6/12
+# Comments:
+# 1. Enable all layers in this module to work with dropout.
+# 2. Strengthen the compatibility.
+# Version: 0.40 # 2019/6/9
 # Comments:
 #   Propose a new "inception plus" layer (`Inceptplus`) in this
 #   module.
@@ -153,6 +157,20 @@ class _Inception(Layer):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -184,6 +202,8 @@ class _Inception(Layer):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -230,6 +250,9 @@ class _Inception(Layer):
         self.beta_regularizer = regularizers.get(beta_regularizer)
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
+        # Inherit from mdnt.layers.dropout
+        self.dropout = dropout
+        self.dropout_rate = dropout_rate
         # Inherit from keras.engine.Layer
         if _high_activation is not None:
             activation = _high_activation
@@ -308,8 +331,7 @@ class _Inception(Layer):
                         _high_activation=None,
                         trainable=self.trainable)
             self.layer_branch_zero_map.build(zero_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_zero_map._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_zero_map) # for compatibility
             zero_shape = self.layer_branch_zero_map.compute_output_shape(zero_shape)
         else:
             self.layer_branch_zero_map = None
@@ -339,13 +361,18 @@ class _Inception(Layer):
                         _high_activation=None,
                         trainable=self.trainable)
             self.layer_branch_one.build(input_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_one._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_one) # for compatibility
             one_shape = self.layer_branch_one.compute_output_shape(input_shape)
         else:
             self.layer_branch_one = None
             one_shape = input_shape
-        # Consider branches with depth
+        # Consider branches with depth, with dropout
+        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis, rank=self.rank)
+        if self.layer_dropout is not None:
+            self.layer_dropout.build(input_shape)
+            depth_shape = self.layer_dropout.compute_output_shape(input_shape)
+        else:
+            depth_shape = input_shape
         depth_shape_list = []
         for D in range(self.depth-1):
             layer_middle_first = NACUnit(rank = self.rank,
@@ -371,10 +398,9 @@ class _Inception(Layer):
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
-            layer_middle_first.build(input_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle_first._trainable_weights)
-            branch_shape = layer_middle_first.compute_output_shape(input_shape)
+            layer_middle_first.build(depth_shape)
+            compat.collect_properties(self, layer_middle_first) # for compatibility
+            branch_shape = layer_middle_first.compute_output_shape(depth_shape)
             setattr(self, 'layer_middle_D{0:02d}_00'.format(D+2), layer_middle_first)
             for i in range(D):
                 layer_middle = NACUnit(rank = self.rank,
@@ -401,8 +427,7 @@ class _Inception(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
                 layer_middle.build(branch_shape)
-                if compat.COMPATIBLE_MODE: # for compatibility
-                    self._trainable_weights.extend(layer_middle._trainable_weights)
+                compat.collect_properties(self, layer_middle) # for compatibility
                 branch_shape = layer_middle.compute_output_shape(branch_shape)
                 setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1), layer_middle)
             layer_middle_last = NACUnit(rank = self.rank,
@@ -429,8 +454,7 @@ class _Inception(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
             layer_middle_last.build(branch_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle_last._trainable_weights)
+            compat.collect_properties(self, layer_middle_last) # for compatibility
             branch_shape = layer_middle_last.compute_output_shape(branch_shape)
             setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1), layer_middle_last)
             depth_shape_list.append(branch_shape)
@@ -449,10 +473,14 @@ class _Inception(Layer):
             branch_one = self.layer_branch_one(inputs)
         else:
             branch_one = inputs
+        if self.layer_dropout is not None:
+            depth_input = self.layer_dropout(inputs)
+        else:
+            depth_input = inputs
         branch_middle_list = []
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
-            branch_middle = layer_middle_first(inputs)
+            branch_middle = layer_middle_first(depth_input)
             for i in range(D):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle = layer_middle(branch_middle)
@@ -470,10 +498,14 @@ class _Inception(Layer):
             branch_one_shape = self.layer_branch_one.compute_output_shape(input_shape)
         else:
             branch_one_shape = input_shape
+        if self.layer_dropout is not None:
+            depth_input_shape = self.layer_dropout.compute_output_shape(input_shape)
+        else:
+            depth_input_shape = input_shape
         branch_middle_shape_list = []
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
-            branch_middle_shape = layer_middle_first.compute_output_shape(input_shape)
+            branch_middle_shape = layer_middle_first.compute_output_shape(depth_input_shape)
             for i in range(D):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle_shape = layer_middle.compute_output_shape(branch_middle_shape)
@@ -503,6 +535,8 @@ class _Inception(Layer):
             'beta_constraint': constraints.serialize(self.beta_constraint),
             'gamma_constraint': constraints.serialize(self.gamma_constraint),
             'groups': self.groups,
+            'dropout': self.dropout,
+            'dropout_rate': self.dropout_rate,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
             'activity_regularizer': regularizers.serialize(self.sub_activity_regularizer),
@@ -568,6 +602,20 @@ class Inception1D(_Inception):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -605,6 +653,8 @@ class Inception1D(_Inception):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -627,6 +677,8 @@ class Inception1D(_Inception):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -703,6 +755,20 @@ class Inception2D(_Inception):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -746,6 +812,8 @@ class Inception2D(_Inception):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -768,6 +836,8 @@ class Inception2D(_Inception):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -845,6 +915,20 @@ class Inception3D(_Inception):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -893,6 +977,8 @@ class Inception3D(_Inception):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -915,6 +1001,8 @@ class Inception3D(_Inception):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -1003,6 +1091,20 @@ class _InceptionTranspose(Layer):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -1037,6 +1139,8 @@ class _InceptionTranspose(Layer):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -1091,6 +1195,9 @@ class _InceptionTranspose(Layer):
         self.beta_regularizer = regularizers.get(beta_regularizer)
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
+        # Inherit from mdnt.layers.dropout
+        self.dropout = dropout
+        self.dropout_rate = dropout_rate
         # Inherit from keras.engine.Layer
         if _high_activation is not None:
             activation = _high_activation
@@ -1244,8 +1351,7 @@ class _InceptionTranspose(Layer):
                         _high_activation=None,
                         trainable=self.trainable)
             self.layer_branch_zero_map.build(zero_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_zero_map._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_zero_map) # for compatibility
             zero_shape = self.layer_branch_zero_map.compute_output_shape(zero_shape)
         else:
             self.layer_branch_zero_map = None
@@ -1275,13 +1381,18 @@ class _InceptionTranspose(Layer):
                         _high_activation=None,
                         trainable=self.trainable)
             self.layer_branch_one.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_one._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_one) # for compatibility
             one_shape = self.layer_branch_one.compute_output_shape(next_shape)
         else:
             self.layer_branch_one = None
             one_shape = next_shape
-        # Consider branches with depth
+        # Consider branches with depth, with dropout
+        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis, rank=self.rank)
+        if self.layer_dropout is not None:
+            self.layer_dropout.build(next_shape)
+            depth_shape = self.layer_dropout.compute_output_shape(next_shape)
+        else:
+            depth_shape = next_shape
         depth_shape_list = []
         for D in range(self.depth-1):
             layer_middle_first = NACUnit(rank = self.rank,
@@ -1307,10 +1418,9 @@ class _InceptionTranspose(Layer):
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
-            layer_middle_first.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle_first._trainable_weights)
-            branch_shape = layer_middle_first.compute_output_shape(next_shape)
+            layer_middle_first.build(depth_shape)
+            compat.collect_properties(self, layer_middle_first) # for compatibility
+            branch_shape = layer_middle_first.compute_output_shape(depth_shape)
             setattr(self, 'layer_middle_D{0:02d}_00'.format(D+2), layer_middle_first)
             for i in range(D):
                 layer_middle = NACUnit(rank = self.rank,
@@ -1337,8 +1447,7 @@ class _InceptionTranspose(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
                 layer_middle.build(branch_shape)
-                if compat.COMPATIBLE_MODE: # for compatibility
-                    self._trainable_weights.extend(layer_middle._trainable_weights)
+                compat.collect_properties(self, layer_middle) # for compatibility
                 branch_shape = layer_middle.compute_output_shape(branch_shape)
                 setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1), layer_middle)
             layer_middle_last = NACUnit(rank = self.rank,
@@ -1365,8 +1474,7 @@ class _InceptionTranspose(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
             layer_middle_last.build(branch_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle_last._trainable_weights)
+            compat.collect_properties(self, layer_middle_last) # for compatibility
             branch_shape = layer_middle_last.compute_output_shape(branch_shape)
             setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, D+1), layer_middle_last)
             depth_shape_list.append(branch_shape)
@@ -1402,10 +1510,14 @@ class _InceptionTranspose(Layer):
             branch_one = self.layer_branch_one(outputs)
         else:
             branch_one = outputs
+        if self.layer_dropout is not None:
+            depth_input = self.layer_dropout(outputs)
+        else:
+            depth_input = outputs
         branch_middle_list = []
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
-            branch_middle = layer_middle_first(outputs)
+            branch_middle = layer_middle_first(depth_input)
             for i in range(D):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle = layer_middle(branch_middle)
@@ -1430,10 +1542,14 @@ class _InceptionTranspose(Layer):
             branch_one_shape = self.layer_branch_one.compute_output_shape(next_shape)
         else:
             branch_one_shape = next_shape
+        if self.layer_dropout is not None:
+            depth_input_shape = self.layer_dropout.compute_output_shape(next_shape)
+        else:
+            depth_input_shape = next_shape
         branch_middle_shape_list = []
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
-            branch_middle_shape = layer_middle_first.compute_output_shape(next_shape)
+            branch_middle_shape = layer_middle_first.compute_output_shape(depth_input_shape)
             for i in range(D):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle_shape = layer_middle.compute_output_shape(branch_middle_shape)
@@ -1468,6 +1584,8 @@ class _InceptionTranspose(Layer):
             'beta_constraint': constraints.serialize(self.beta_constraint),
             'gamma_constraint': constraints.serialize(self.gamma_constraint),
             'groups': self.groups,
+            'dropout': self.dropout,
+            'dropout_rate': self.dropout_rate,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
             'activity_regularizer': regularizers.serialize(self.activity_regularizer),
@@ -1554,6 +1672,20 @@ class Inception1DTranspose(_InceptionTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -1593,6 +1725,8 @@ class Inception1DTranspose(_InceptionTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -1618,6 +1752,8 @@ class Inception1DTranspose(_InceptionTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -1716,6 +1852,20 @@ class Inception2DTranspose(_InceptionTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -1761,6 +1911,8 @@ class Inception2DTranspose(_InceptionTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -1786,6 +1938,8 @@ class Inception2DTranspose(_InceptionTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -1885,6 +2039,20 @@ class Inception3DTranspose(_InceptionTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -1932,6 +2100,8 @@ class Inception3DTranspose(_InceptionTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -1957,6 +2127,8 @@ class Inception3DTranspose(_InceptionTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -2037,6 +2209,20 @@ class _Inceptres(Layer):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -2068,6 +2254,8 @@ class _Inceptres(Layer):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -2112,6 +2300,9 @@ class _Inceptres(Layer):
         self.beta_regularizer = regularizers.get(beta_regularizer)
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
+        # Inherit from mdnt.layers.dropout
+        self.dropout = dropout
+        self.dropout_rate = dropout_rate
         # Inherit from keras.engine.Layer
         if _high_activation is not None:
             activation = _high_activation
@@ -2174,8 +2365,7 @@ class _Inceptres(Layer):
                           _high_activation=None,
                           trainable=self.trainable)
             self.layer_branch_left.build(input_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_left) # for compatibility
             left_shape = self.layer_branch_left.compute_output_shape(input_shape)
         # Here we define the right branch
         # Consider the branch zero
@@ -2225,8 +2415,7 @@ class _Inceptres(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
             self.layer_branch_zero_map.build(zero_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_zero_map._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_zero_map) # for compatibility
             zero_shape = self.layer_branch_zero_map.compute_output_shape(zero_shape)
         else:
             self.layer_branch_zero_map = None
@@ -2256,13 +2445,18 @@ class _Inceptres(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
             self.layer_branch_one.build(input_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_one._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_one) # for compatibility
             one_shape = self.layer_branch_one.compute_output_shape(input_shape)
         else:
             self.layer_branch_one = None
             one_shape = input_shape
-        # Consider branches with depth
+        # Consider branches with depth, with dropout
+        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis, rank=self.rank)
+        if self.layer_dropout is not None:
+            self.layer_dropout.build(input_shape)
+            depth_shape = self.layer_dropout.compute_output_shape(input_shape)
+        else:
+            depth_shape = input_shape
         depth_shape_list = []
         for D in range(self.depth-1):
             layer_middle_first = NACUnit(rank = self.rank,
@@ -2288,10 +2482,9 @@ class _Inceptres(Layer):
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
-            layer_middle_first.build(input_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle_first._trainable_weights)
-            branch_shape = layer_middle_first.compute_output_shape(input_shape)
+            layer_middle_first.build(depth_shape)
+            compat.collect_properties(self, layer_middle_first) # for compatibility
+            branch_shape = layer_middle_first.compute_output_shape(depth_shape)
             setattr(self, 'layer_middle_D{0:02d}_00'.format(D+2), layer_middle_first)
             for i in range(D+1):
                 layer_middle = NACUnit(rank = self.rank,
@@ -2318,8 +2511,7 @@ class _Inceptres(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
                 layer_middle.build(branch_shape)
-                if compat.COMPATIBLE_MODE: # for compatibility
-                    self._trainable_weights.extend(layer_middle._trainable_weights)
+                compat.collect_properties(self, layer_middle) # for compatibility
                 branch_shape = layer_middle.compute_output_shape(branch_shape)
                 setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1), layer_middle)
             depth_shape_list.append(branch_shape)
@@ -2355,8 +2547,7 @@ class _Inceptres(Layer):
                           _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_branch_right_map.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_branch_right_map._trainable_weights)
+        compat.collect_properties(self, self.layer_branch_right_map) # for compatibility
         right_shape = self.layer_branch_right_map.compute_output_shape(right_shape)
         # Merge the residual block
         self.layer_merge = Add()
@@ -2377,10 +2568,14 @@ class _Inceptres(Layer):
             branch_one = self.layer_branch_one(inputs)
         else:
             branch_one = inputs
+        if self.layer_dropout is not None:
+            depth_input = self.layer_dropout(inputs)
+        else:
+            depth_input = inputs
         branch_middle_list = []
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
-            branch_middle = layer_middle_first(inputs)
+            branch_middle = layer_middle_first(depth_input)
             for i in range(D+1):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle = layer_middle(branch_middle)
@@ -2402,10 +2597,14 @@ class _Inceptres(Layer):
             branch_one_shape = self.layer_branch_one.compute_output_shape(input_shape)
         else:
             branch_one_shape = input_shape
+        if self.layer_dropout is not None:
+            depth_input_shape = self.layer_dropout.compute_output_shape(input_shape)
+        else:
+            depth_input_shape = input_shape
         branch_middle_shape_list = []
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
-            branch_middle_shape = layer_middle_first.compute_output_shape(input_shape)
+            branch_middle_shape = layer_middle_first.compute_output_shape(depth_input_shape)
             for i in range(D+1):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle_shape = layer_middle.compute_output_shape(branch_middle_shape)
@@ -2435,6 +2634,8 @@ class _Inceptres(Layer):
             'beta_constraint': constraints.serialize(self.beta_constraint),
             'gamma_constraint': constraints.serialize(self.gamma_constraint),
             'groups': self.groups,
+            'dropout': self.dropout,
+            'dropout_rate': self.dropout_rate,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
             'activity_regularizer': regularizers.serialize(self.sub_activity_regularizer),
@@ -2502,6 +2703,20 @@ class Inceptres1D(_Inceptres):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -2539,6 +2754,8 @@ class Inceptres1D(_Inceptres):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -2561,6 +2778,8 @@ class Inceptres1D(_Inceptres):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -2639,6 +2858,20 @@ class Inceptres2D(_Inceptres):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -2682,6 +2915,8 @@ class Inceptres2D(_Inceptres):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -2704,6 +2939,8 @@ class Inceptres2D(_Inceptres):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -2783,6 +3020,20 @@ class Inceptres3D(_Inceptres):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -2831,6 +3082,8 @@ class Inceptres3D(_Inceptres):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -2853,6 +3106,8 @@ class Inceptres3D(_Inceptres):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -2942,6 +3197,20 @@ class _InceptresTranspose(Layer):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -2976,6 +3245,8 @@ class _InceptresTranspose(Layer):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -3028,6 +3299,9 @@ class _InceptresTranspose(Layer):
         self.beta_regularizer = regularizers.get(beta_regularizer)
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
+        # Inherit from mdnt.layers.dropout
+        self.dropout = dropout
+        self.dropout_rate = dropout_rate
         # Inherit from keras.engine.Layer
         if _high_activation is not None:
             activation = _high_activation
@@ -3165,8 +3439,7 @@ class _InceptresTranspose(Layer):
                           _high_activation=None,
                           trainable=self.trainable)
             self.layer_branch_left.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_left) # for compatibility
             left_shape = self.layer_branch_left.compute_output_shape(next_shape)
         # Here we define the right branch
         # Consider the branch zero
@@ -3216,8 +3489,7 @@ class _InceptresTranspose(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
             self.layer_branch_zero_map.build(zero_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_zero_map._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_zero_map) # for compatibility
             zero_shape = self.layer_branch_zero_map.compute_output_shape(zero_shape)
         else:
             self.layer_branch_zero_map = None
@@ -3247,13 +3519,18 @@ class _InceptresTranspose(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
             self.layer_branch_one.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_one._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_one) # for compatibility
             one_shape = self.layer_branch_one.compute_output_shape(next_shape)
         else:
             self.layer_branch_one = None
             one_shape = next_shape
-        # Consider branches with depth
+        # Consider branches with depth, with dropout
+        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis, rank=self.rank)
+        if self.layer_dropout is not None:
+            self.layer_dropout.build(next_shape)
+            depth_shape = self.layer_dropout.compute_output_shape(next_shape)
+        else:
+            depth_shape = next_shape
         depth_shape_list = []
         for D in range(self.depth-1):
             layer_middle_first = NACUnit(rank = self.rank,
@@ -3279,10 +3556,9 @@ class _InceptresTranspose(Layer):
                           activity_regularizer=self.sub_activity_regularizer,
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
-            layer_middle_first.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle_first._trainable_weights)
-            branch_shape = layer_middle_first.compute_output_shape(next_shape)
+            layer_middle_first.build(depth_shape)
+            compat.collect_properties(self, layer_middle_first) # for compatibility
+            branch_shape = layer_middle_first.compute_output_shape(depth_shape)
             setattr(self, 'layer_middle_D{0:02d}_00'.format(D+2), layer_middle_first)
             for i in range(D+1):
                 layer_middle = NACUnit(rank = self.rank,
@@ -3309,8 +3585,7 @@ class _InceptresTranspose(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
                 layer_middle.build(branch_shape)
-                if compat.COMPATIBLE_MODE: # for compatibility
-                    self._trainable_weights.extend(layer_middle._trainable_weights)
+                compat.collect_properties(self, layer_middle) # for compatibility
                 branch_shape = layer_middle.compute_output_shape(branch_shape)
                 setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1), layer_middle)
             depth_shape_list.append(branch_shape)
@@ -3346,8 +3621,7 @@ class _InceptresTranspose(Layer):
                           _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_branch_right_map.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_branch_right_map._trainable_weights)
+        compat.collect_properties(self, self.layer_branch_right_map) # for compatibility
         right_shape = self.layer_branch_right_map.compute_output_shape(right_shape)
         # Merge the residual block
         self.layer_merge = Add()
@@ -3385,10 +3659,14 @@ class _InceptresTranspose(Layer):
             branch_one = self.layer_branch_one(outputs)
         else:
             branch_one = outputs
+        if self.layer_dropout is not None:
+            depth_input = self.layer_dropout(outputs)
+        else:
+            depth_input = outputs
         branch_middle_list = []
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
-            branch_middle = layer_middle_first(outputs)
+            branch_middle = layer_middle_first(depth_input)
             for i in range(D+1):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle = layer_middle(branch_middle)
@@ -3417,10 +3695,14 @@ class _InceptresTranspose(Layer):
             branch_one_shape = self.layer_branch_one.compute_output_shape(next_shape)
         else:
             branch_one_shape = next_shape
+        if self.layer_dropout is not None:
+            depth_input_shape = self.layer_dropout.compute_output_shape(next_shape)
+        else:
+            depth_input_shape = next_shape
         branch_middle_shape_list = []
         for D in range(self.depth-1):
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+2))
-            branch_middle_shape = layer_middle_first.compute_output_shape(next_shape)
+            branch_middle_shape = layer_middle_first.compute_output_shape(depth_input_shape)
             for i in range(D+1):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+2, i+1))
                 branch_middle_shape = layer_middle.compute_output_shape(branch_middle_shape)
@@ -3455,6 +3737,8 @@ class _InceptresTranspose(Layer):
             'beta_constraint': constraints.serialize(self.beta_constraint),
             'gamma_constraint': constraints.serialize(self.gamma_constraint),
             'groups': self.groups,
+            'dropout': self.dropout,
+            'dropout_rate': self.dropout_rate,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
             'activity_regularizer': regularizers.serialize(self.activity_regularizer),
@@ -3539,6 +3823,20 @@ class Inceptres1DTranspose(_InceptresTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -3578,6 +3876,8 @@ class Inceptres1DTranspose(_InceptresTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -3603,6 +3903,8 @@ class Inceptres1DTranspose(_InceptresTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -3699,6 +4001,20 @@ class Inceptres2DTranspose(_InceptresTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -3744,6 +4060,8 @@ class Inceptres2DTranspose(_InceptresTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -3769,6 +4087,8 @@ class Inceptres2DTranspose(_InceptresTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -3866,6 +4186,20 @@ class Inceptres3DTranspose(_InceptresTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -3913,6 +4247,8 @@ class Inceptres3DTranspose(_InceptresTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -3938,6 +4274,8 @@ class Inceptres3DTranspose(_InceptresTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -4010,6 +4348,20 @@ class _Inceptplus(Layer):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -4041,6 +4393,8 @@ class _Inceptplus(Layer):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -4085,6 +4439,9 @@ class _Inceptplus(Layer):
         self.beta_regularizer = regularizers.get(beta_regularizer)
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
+        # Inherit from mdnt.layers.dropout
+        self.dropout = dropout
+        self.dropout_rate = dropout_rate
         # Inherit from keras.engine.Layer
         if _high_activation is not None:
             activation = _high_activation
@@ -4147,13 +4504,18 @@ class _Inceptplus(Layer):
                           _high_activation=None,
                           trainable=self.trainable)
             self.layer_branch_left.build(input_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_left) # for compatibility
             left_shape = self.layer_branch_left.compute_output_shape(input_shape)
-        # Here we define the right branch
+        # Here we define the right branch, with dropout
+        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis, rank=self.rank)
+        if self.layer_dropout is not None:
+            self.layer_dropout.build(input_shape)
+            depth_shape = self.layer_dropout.compute_output_shape(input_shape)
+        else:
+            depth_shape = input_shape
         # First, need to calculate N depth average filter
         depth_shape_list = []
-        branch_avg_shape = input_shape
+        branch_avg_shape = depth_shape
         # The branch (depth) D (D>=1) average filter
         for D in range(self.depth):
             # First, create average layer
@@ -4170,8 +4532,8 @@ class _Inceptplus(Layer):
             setattr(self, 'layer_avg_D{0:02d}'.format(D+1), layer_avg)
             # Second use substract layer to perform input - avg
             layer_middle_input = Subtract()
-            layer_middle_input.build([input_shape, branch_avg_shape])
-            branch_shape = layer_middle_input.compute_output_shape([input_shape, branch_avg_shape])
+            layer_middle_input.build([depth_shape, branch_avg_shape])
+            branch_shape = layer_middle_input.compute_output_shape([depth_shape, branch_avg_shape])
             setattr(self, 'layer_middle_D{0:02d}_inp'.format(D+1), layer_middle_input)
             # Third, use 1 x 1 filter perform strides and channel mapping
             layer_middle_first = NACUnit(rank = self.rank,
@@ -4198,8 +4560,7 @@ class _Inceptplus(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
             layer_middle_first.build(branch_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle_first._trainable_weights)
+            compat.collect_properties(self, layer_middle_first) # for compatibility
             branch_shape = layer_middle_first.compute_output_shape(branch_shape)
             setattr(self, 'layer_middle_D{0:02d}_00'.format(D+1), layer_middle_first)
             for i in range(D+1):
@@ -4227,8 +4588,7 @@ class _Inceptplus(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
                 layer_middle.build(branch_shape)
-                if compat.COMPATIBLE_MODE: # for compatibility
-                    self._trainable_weights.extend(layer_middle._trainable_weights)
+                compat.collect_properties(self, layer_middle) # for compatibility
                 branch_shape = layer_middle.compute_output_shape(branch_shape)
                 setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+1, i+1), layer_middle)
             depth_shape_list.append(branch_shape)
@@ -4264,8 +4624,7 @@ class _Inceptplus(Layer):
                           _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_branch_right_map.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_branch_right_map._trainable_weights)
+        compat.collect_properties(self, self.layer_branch_right_map) # for compatibility
         right_shape = self.layer_branch_right_map.compute_output_shape(right_shape)
         # Merge the residual block
         self.layer_merge = Subtract()
@@ -4279,13 +4638,17 @@ class _Inceptplus(Layer):
         else:
             branch_left = inputs
         # Right branch
+        if self.layer_dropout is not None:
+            depth_input = self.layer_dropout(inputs)
+        else:
+            depth_input = inputs
         branch_middle_list = []
-        branch_avg = inputs
+        branch_avg = depth_input
         for D in range(self.depth):
             layer_avg = getattr(self, 'layer_avg_D{0:02d}'.format(D+1))
             branch_avg = layer_avg(branch_avg)
             layer_middle_input = getattr(self, 'layer_middle_D{0:02d}_inp'.format(D+1))
-            branch_middle = layer_middle_input([inputs, branch_avg])
+            branch_middle = layer_middle_input([depth_input, branch_avg])
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+1))
             branch_middle = layer_middle_first(branch_middle)
             for i in range(D+1):
@@ -4302,13 +4665,17 @@ class _Inceptplus(Layer):
             branch_left_shape = self.layer_branch_left.compute_output_shape(input_shape)
         else:
             branch_left_shape = input_shape
+        if self.layer_dropout is not None:
+            depth_input_shape = self.layer_dropout.compute_output_shape(input_shape)
+        else:
+            depth_input_shape = input_shape
         branch_middle_shape_list = []
-        branch_avg_shape = input_shape
+        branch_avg_shape = depth_input_shape
         for D in range(self.depth):
             layer_avg = getattr(self, 'layer_avg_D{0:02d}'.format(D+1))
             branch_avg_shape = layer_avg.compute_output_shape(branch_avg_shape)
             layer_middle_input = getattr(self, 'layer_middle_D{0:02d}_inp'.format(D+1))
-            branch_middle_shape = layer_middle_input.compute_output_shape([input_shape, branch_avg_shape])
+            branch_middle_shape = layer_middle_input.compute_output_shape([depth_input_shape, branch_avg_shape])
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+1))
             branch_middle_shape = layer_middle_first.compute_output_shape(branch_middle_shape)
             for i in range(D+1):
@@ -4340,6 +4707,8 @@ class _Inceptplus(Layer):
             'beta_constraint': constraints.serialize(self.beta_constraint),
             'gamma_constraint': constraints.serialize(self.gamma_constraint),
             'groups': self.groups,
+            'dropout': self.dropout,
+            'dropout_rate': self.dropout_rate,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
             'activity_regularizer': regularizers.serialize(self.sub_activity_regularizer),
@@ -4405,6 +4774,20 @@ class Inceptplus1D(_Inceptplus):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -4442,6 +4825,8 @@ class Inceptplus1D(_Inceptplus):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -4464,6 +4849,8 @@ class Inceptplus1D(_Inceptplus):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -4540,6 +4927,20 @@ class Inceptplus2D(_Inceptplus):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -4583,6 +4984,8 @@ class Inceptplus2D(_Inceptplus):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -4605,6 +5008,8 @@ class Inceptplus2D(_Inceptplus):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -4682,6 +5087,20 @@ class Inceptplus3D(_Inceptplus):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -4730,6 +5149,8 @@ class Inceptplus3D(_Inceptplus):
                beta_constraint=None,
                gamma_constraint=None,
                groups=32,
+               dropout=None,
+               dropout_rate=0.3,
                activation=None,
                activity_config=None,
                activity_regularizer=None,
@@ -4752,6 +5173,8 @@ class Inceptplus3D(_Inceptplus):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -4844,6 +5267,20 @@ class _InceptplusTranspose(Layer):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -4878,6 +5315,8 @@ class _InceptplusTranspose(Layer):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -4930,6 +5369,9 @@ class _InceptplusTranspose(Layer):
         self.beta_regularizer = regularizers.get(beta_regularizer)
         self.beta_constraint = constraints.get(beta_constraint)
         self.groups = groups
+        # Inherit from mdnt.layers.dropout
+        self.dropout = dropout
+        self.dropout_rate = dropout_rate
         # Inherit from keras.engine.Layer
         if _high_activation is not None:
             activation = _high_activation
@@ -5067,13 +5509,18 @@ class _InceptplusTranspose(Layer):
                           _high_activation=None,
                           trainable=self.trainable)
             self.layer_branch_left.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_branch_left._trainable_weights)
+            compat.collect_properties(self, self.layer_branch_left) # for compatibility
             left_shape = self.layer_branch_left.compute_output_shape(next_shape)
-        # Here we define the right branch
+        # Here we define the right branch, with dropout
+        self.layer_dropout = return_dropout(self.dropout, self.dropout_rate, axis=channel_axis, rank=self.rank)
+        if self.layer_dropout is not None:
+            self.layer_dropout.build(next_shape)
+            depth_shape = self.layer_dropout.compute_output_shape(next_shape)
+        else:
+            depth_shape = next_shape
         # First, need to calculate N depth average filter
         depth_shape_list = []
-        branch_avg_shape = next_shape
+        branch_avg_shape = depth_shape
         # The branch (depth) D (D>=1) average filter
         for D in range(self.depth):
             # First, create average layer
@@ -5090,8 +5537,8 @@ class _InceptplusTranspose(Layer):
             setattr(self, 'layer_avg_D{0:02d}'.format(D+1), layer_avg)
             # Second use substract layer to perform input - avg
             layer_middle_input = Subtract()
-            layer_middle_input.build([next_shape, branch_avg_shape])
-            branch_shape = layer_middle_input.compute_output_shape([next_shape, branch_avg_shape])
+            layer_middle_input.build([depth_shape, branch_avg_shape])
+            branch_shape = layer_middle_input.compute_output_shape([depth_shape, branch_avg_shape])
             setattr(self, 'layer_middle_D{0:02d}_inp'.format(D+1), layer_middle_input)
             # Third, use 1 x 1 filter perform strides and channel mapping
             layer_middle_first = NACUnit(rank = self.rank,
@@ -5118,8 +5565,7 @@ class _InceptplusTranspose(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
             layer_middle_first.build(branch_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(layer_middle_first._trainable_weights)
+            compat.collect_properties(self, layer_middle_first) # for compatibility
             branch_shape = layer_middle_first.compute_output_shape(branch_shape)
             setattr(self, 'layer_middle_D{0:02d}_00'.format(D+1), layer_middle_first)
             for i in range(D+1):
@@ -5147,8 +5593,7 @@ class _InceptplusTranspose(Layer):
                           _high_activation=self.high_activation,
                           trainable=self.trainable)
                 layer_middle.build(branch_shape)
-                if compat.COMPATIBLE_MODE: # for compatibility
-                    self._trainable_weights.extend(layer_middle._trainable_weights)
+                compat.collect_properties(self, layer_middle) # for compatibility
                 branch_shape = layer_middle.compute_output_shape(branch_shape)
                 setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+1, i+1), layer_middle)
             depth_shape_list.append(branch_shape)
@@ -5184,8 +5629,7 @@ class _InceptplusTranspose(Layer):
                           _use_bias=last_use_bias,
                           trainable=self.trainable)
         self.layer_branch_right_map.build(right_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_branch_right_map._trainable_weights)
+        compat.collect_properties(self, self.layer_branch_right_map) # for compatibility
         right_shape = self.layer_branch_right_map.compute_output_shape(right_shape)
         # Merge the residual block
         self.layer_merge = Subtract()
@@ -5216,13 +5660,17 @@ class _InceptplusTranspose(Layer):
         else:
             branch_left = outputs
         # Right branch
+        if self.layer_dropout is not None:
+            depth_input = self.layer_dropout(outputs)
+        else:
+            depth_input = outputs
         branch_middle_list = []
-        branch_avg = outputs
+        branch_avg = depth_input
         for D in range(self.depth):
             layer_avg = getattr(self, 'layer_avg_D{0:02d}'.format(D+1))
             branch_avg = layer_avg(branch_avg)
             layer_middle_input = getattr(self, 'layer_middle_D{0:02d}_inp'.format(D+1))
-            branch_middle = layer_middle_input([outputs, branch_avg])
+            branch_middle = layer_middle_input([depth_input, branch_avg])
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+1))
             branch_middle = layer_middle_first(branch_middle)
             for i in range(D+1):
@@ -5246,13 +5694,17 @@ class _InceptplusTranspose(Layer):
             branch_left_shape = self.layer_branch_left.compute_output_shape(next_shape)
         else:
             branch_left_shape = next_shape
+        if self.layer_dropout is not None:
+            depth_input_shape = self.layer_dropout.compute_output_shape(next_shape)
+        else:
+            depth_input_shape = next_shape
         branch_middle_shape_list = []
-        branch_avg_shape = next_shape
+        branch_avg_shape = depth_input_shape
         for D in range(self.depth):
             layer_avg = getattr(self, 'layer_avg_D{0:02d}'.format(D+1))
             branch_avg_shape = layer_avg.compute_output_shape(branch_avg_shape)
             layer_middle_input = getattr(self, 'layer_middle_D{0:02d}_inp'.format(D+1))
-            branch_middle_shape = layer_middle_input.compute_output_shape([next_shape, branch_avg_shape])
+            branch_middle_shape = layer_middle_input.compute_output_shape([depth_input_shape, branch_avg_shape])
             layer_middle_first = getattr(self, 'layer_middle_D{0:02d}_00'.format(D+1))
             branch_middle_shape = layer_middle_first.compute_output_shape(branch_middle_shape)
             for i in range(D+1):
@@ -5289,6 +5741,8 @@ class _InceptplusTranspose(Layer):
             'beta_constraint': constraints.serialize(self.beta_constraint),
             'gamma_constraint': constraints.serialize(self.gamma_constraint),
             'groups': self.groups,
+            'dropout': self.dropout,
+            'dropout_rate': self.dropout_rate,
             'activation': activations.serialize(self.activation),
             'activity_config': self.activity_config,
             'activity_regularizer': regularizers.serialize(self.activity_regularizer),
@@ -5376,6 +5830,20 @@ class Inceptplus1DTranspose(_InceptplusTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -5415,6 +5883,8 @@ class Inceptplus1DTranspose(_InceptplusTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -5440,6 +5910,8 @@ class Inceptplus1DTranspose(_InceptplusTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -5539,6 +6011,20 @@ class Inceptplus2DTranspose(_InceptplusTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -5584,6 +6070,8 @@ class Inceptplus2DTranspose(_InceptplusTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -5609,6 +6097,8 @@ class Inceptplus2DTranspose(_InceptplusTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),
@@ -5709,6 +6199,20 @@ class Inceptplus3DTranspose(_InceptplusTranspose):
             groups for Group Normalization.
             Can be in the range [1, N] where N is the input dimension.
             The input dimension must be divisible by the number of groups.
+    Arguments for dropout: (drop out would be only applied on the entrance
+                            of conv. branch.)
+        dropout: The dropout type, which could be
+            (1) None:    do not use dropout.
+            (2) plain:   use tf.keras.layers.Dropout.
+            (3) add:     use scale-invariant addictive noise.
+                         (mdnt.layers.InstanceGaussianNoise)
+            (4) mul:     use multiplicative noise.
+                         (tf.keras.layers.GaussianDropout)
+            (5) alpha:   use alpha dropout. (tf.keras.layers.AlphaDropout)
+            (6) spatial: use spatial dropout (tf.keras.layers.SpatialDropout)
+        dropout_rate: The drop probability. In `add` mode, it is used as
+            maximal std. To learn more, please see the docstrings of each
+            method.
     Arguments for activation:
         activation: Activation function to use
             (see [activations](../activations.md)).
@@ -5756,6 +6260,8 @@ class Inceptplus3DTranspose(_InceptplusTranspose):
                  beta_constraint=None,
                  gamma_constraint=None,
                  groups=32,
+                 dropout=None,
+                 dropout_rate=0.3,
                  activation=None,
                  activity_config=None,
                  activity_regularizer=None,
@@ -5781,6 +6287,8 @@ class Inceptplus3DTranspose(_InceptplusTranspose):
             beta_constraint=constraints.get(beta_constraint),
             gamma_constraint=constraints.get(gamma_constraint),
             groups=groups,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
             activation=activation,
             activity_config=activity_config,
             activity_regularizer=regularizers.get(activity_regularizer),

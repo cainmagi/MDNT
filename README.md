@@ -13,21 +13,21 @@ Now we have such progress on the semi-product:
 - [ ] optimzers:
     - still working on it.
     - [x] Wrapped default optimizers.
-- [ ] layers:
+- [x] layers:
     - [x] Tied dense layer for the symmetric autoencoder.
     - [x] Extended dropout and noise layers.
     - [x] Extened normalization layers.
     - [x] Group convolutional layers.
     - [x] Modern convolutional layers (support group convolution).
     - [x] Modern transposed convolutional layers (support group convolution).
-    - [x] Tied and modern transposed convolutional layers for the symmetric autoencoder.
+    - [x] Tied (trivial) transposed convolutional layers for the symmetric autoencoder.
     - [x] Residual layers (or blocks) and their transposed versions.
     - [x] ResNeXt layers (or blocks) and their transposed versions.
     - [x] Inception-v4 layers (or blocks) and their transposed versions.
     - [x] InceptionRes-v2 layers (or blocks) and their transposed versions.
     - [x] InceptionPlus layers (or blocks) and their transposed versions.
     - [x] External interface for using generic python function.
-    - [ ] Droupout method options for all avaliable modern layers.
+    - [x] Droupout method options for all avaliable modern layers.
 - [ ] data:
     - [x] Basic h5py (HDF5) IO handles.
     - [ ] Basic SQLite IO handles.
@@ -51,6 +51,13 @@ Now we have such progress on the semi-product:
 Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
+
+### 0.54 @ 06/12/2019
+
+1. Add dropout options to all advanced blocks (including residual, ResNeXt, inception, incept-res and incept-plus).
+2. Strengthen the compatibility.
+3. Fix minor bugs for spatial dropout in `0.50-b`.
+4. Thanks to GOD! `.layers` has been finished, although it may require modification in the future.
 
 ### 0.50-b @ 06/11/2019
 

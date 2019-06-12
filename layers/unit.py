@@ -21,6 +21,9 @@
 # The norm-actv-conv structure is proved to be effective by 
 # this paper:
 #   https://arxiv.org/abs/1603.05027
+# Version: 0.20 # 2019/6/12
+# Comments:
+#   Strengthen the compatibility.
 # Version: 0.18 # 2019/6/11
 # Comments:
 #   Fix a bug for normalization layers when channel_first.
@@ -266,16 +269,14 @@ class NACUnit(Layer):
                                                      beta_constraint = self.beta_constraint,
                                                      trainable=self.trainable)
             self.layer_norm.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_norm._trainable_weights)
+            compat.collect_properties(self, self.layer_norm) # for compatibility
             next_shape = self.layer_norm.compute_output_shape(next_shape)
         # Activation (if activation is a layer)
         if self.high_activation == 'prelu':
             shared_axes = tuple(range(1,self.rank+1))
             self.layer_actv = PReLU(shared_axes=shared_axes)
             self.layer_actv.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_actv._trainable_weights)
+            compat.collect_properties(self, self.layer_actv) # for compatibility
             next_shape = self.layer_actv.compute_output_shape(next_shape)
         elif self.high_activation == 'lrelu':
             alpha = self.activity_config.get('alpha', 0.3)
@@ -327,8 +328,7 @@ class NACUnit(Layer):
                                    kernel_constraint = self.kernel_constraint,
                                    trainable=self.trainable)
         self.layer_conv.build(next_shape)
-        if compat.COMPATIBLE_MODE: # for compatibility
-            self._trainable_weights.extend(self.layer_conv._trainable_weights)
+        compat.collect_properties(self, self.layer_conv) # for compatibility
         super(NACUnit, self).build(input_shape)
 
     def call(self, inputs):
@@ -649,15 +649,13 @@ class NACUnitTranspose(Layer):
                                                      beta_constraint = self.beta_constraint,
                                                      trainable=self.trainable)
             self.layer_norm.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_norm._trainable_weights)
+            compat.collect_properties(self, self.layer_norm) # for compatibility
             next_shape = self.layer_norm.compute_output_shape(next_shape)
         if self.high_activation == 'prelu':
             shared_axes = tuple(range(1,self.rank+1))
             self.layer_actv = PReLU(shared_axes=shared_axes)
             self.layer_actv.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_actv._trainable_weights)
+            compat.collect_properties(self, self.layer_actv) # for compatibility
         elif self.high_activation == 'lrelu':
             alpha = self.activity_config.get('alpha', 0.3)
             self.layer_actv = LeakyReLU(alpha=alpha)
@@ -783,8 +781,7 @@ class NACUnitTranspose(Layer):
                                        kernel_constraint = self.kernel_constraint,
                                        trainable=self.trainable)
             self.layer_conv.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_conv._trainable_weights)
+            compat.collect_properties(self, self.layer_conv) # for compatibility
             next_shape = self.layer_conv.compute_output_shape(next_shape)
             if self.output_cropping is not None:
                 if self.rank == 1:
@@ -858,8 +855,7 @@ class NACUnitTranspose(Layer):
             else:
                 raise ValueError('Rank of the deconvolution should be 1, 2 or 3.')
             self.layer_deconv.build(next_shape)
-            if compat.COMPATIBLE_MODE: # for compatibility
-                self._trainable_weights.extend(self.layer_deconv._trainable_weights)
+            compat.collect_properties(self, self.layer_deconv) # for compatibility
             next_shape = self.layer_deconv.compute_output_shape(next_shape)
             if self.rank == 1:
                 next_shape = next_shape[:1].concatenate(next_shape[2:])
