@@ -39,10 +39,12 @@ Now we have such progress on the semi-product:
     - [ ] VGG16
     - [ ] U-Net
     - [ ] ResNet
-- [ ] functions:
-    - [ ] (loss):    Lovasz loss
-    - [ ] (metrics): IOU / Jaccard index
-    - [ ] (metrics): Pearson correlation coefficient
+- [x] functions:
+    - [x] (loss):    Lovasz loss for IoU
+    - [x] (loss):    Linear interpolated loss for IoU
+    - [x] (metrics): signal-to-noise ratio (SNR and PSNR)
+    - [x] (metrics): Pearson correlation coefficient
+    - [x] (metrics): IoU / Jaccard index
 - [ ] utilities:
     - [ ] Beholder plug-in callback.
 

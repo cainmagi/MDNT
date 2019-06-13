@@ -23,7 +23,7 @@ from tensorflow.python.ops import control_flow_ops
 from .others import get_channels
 
 def signal_to_noise(y_true, y_pred, mode='snr', data_format=None, epsilon=1e-8):
-    '''Signal-to-noise ratio.
+    '''Signal-to-noise ratio. (metric)
     Calculate the signal-to-noise ratio. It support different modes.
     Arguments:
         mode:        (1)  snr: mean [ y_true^2 / (y_pred - y_true)^2 ]
