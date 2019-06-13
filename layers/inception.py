@@ -75,6 +75,7 @@ from tensorflow.python.keras.layers.pooling import MaxPooling1D, MaxPooling2D, M
 from tensorflow.python.keras.layers.merge import Add, Concatenate, Subtract
 from .unit import NACUnit
 from .conv import _AConv
+from .dropout import return_dropout
 
 from .. import compat
 if compat.COMPATIBLE_MODE:
