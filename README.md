@@ -56,6 +56,10 @@ The following demos are working for denoising with MNIST data set.
 
 ## Update records
 
+### @ 06/12/2019
+
+1. Enable `demo-InceptPlusTranspose` to work on the test for dropout methods.
+
 ### @ 06/11/2019
 
 1. Update the tests (`demo-AEConvTied`, `demo-AEConv1DTied`) for tied convolutional (`Conv2DTied`, `Conv1DTied`) layers.

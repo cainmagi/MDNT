@@ -167,11 +167,12 @@ if __name__ == '__main__':
         '-md', '--dropoutMode', default=None, metavar='str',
         help='''\
         The mode of dropout type in this demo.
-            None:  do not use dropout.
-            plain: use tf.keras.layers.Dropout.
-            add:   use scale-invariant addictive noise.
-            mul:   use multiplicative noise.
-            alpha: use alpha dropout.
+            None:    do not use dropout.
+            plain:   use tf.keras.layers.Dropout.
+            add:     use scale-invariant addictive noise.
+            mul:     use multiplicative noise.
+            alpha:   use alpha dropout.
+            spatial: use spatial dropout.
         '''
     )
     
