@@ -52,6 +52,10 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.56 @ 06/13/2019
+
+Finish `losses.linear_jaccard_index`, `losses.lovasz_jaccard_loss`, `metrics.signal_to_noise`, `metrics.correlation`, `metrics.jaccard_index` in `.functions` (may require tests in the future).
+
 ### 0.54 @ 06/12/2019
 
 1. Add dropout options to all advanced blocks (including residual, ResNeXt, inception, incept-res and incept-plus).

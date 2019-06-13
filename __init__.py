@@ -14,6 +14,14 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.56 # 2019/6/13
+# Comments:
+#   Finish losses.linear_jaccard_index, 
+#          losses.lovasz_jaccard_loss, 
+#          metrics.signal_to_noise,
+#          metrics.correlation,
+#          metrics.jaccard_index
+#          in .functions (may require tests in the future).
 # Version: 0.54 # 2019/6/12
 # Comments:
 #   1. Add dropout options to all advanced blocks (including
@@ -125,8 +133,9 @@
 from . import optimizers
 from . import layers
 from . import data
+from . import functions
 
-__version__ = '0.54'
+__version__ = '0.56'
 
 # Set this local module as the prefered one
 from pkgutil import extend_path
@@ -136,6 +145,7 @@ __path__ = extend_path(__path__, __name__)
 from tensorflow.python.keras.engine.saving import load_model as _load_model
 customObjects = dict()
 customObjects.update(layers.customObjects)
+customObjects.update(functions.customObjects)
 def load_model(filepath, custom_objects=None, compile=True, *args, **kwargs):
     if isinstance(custom_objects, dict):
         custom_objects.update(customObjects)
