@@ -30,6 +30,9 @@
 # ture of such a scheme is as
 #   Input + "Inception-v4 plain block"
 # We have also implemented the InceptRes-v4 in this module.
+# Version: 0.46 # 2019/6/13
+# Comments:
+#    Fix a small bug for inception-plus layer when depth=1.
 # Version: 0.45 # 2019/6/12
 # Comments:
 # 1. Enable all layers in this module to work with dropout.
@@ -4594,12 +4597,16 @@ class _Inceptplus(Layer):
                 setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+1, i+1), layer_middle)
             depth_shape_list.append(branch_shape)
         # Merge the right branch by concatnation.
-        if self.data_format == 'channels_first':
-            self.layer_branch_right = Concatenate(axis=1)
+        if self.depth > 1:
+            if self.data_format == 'channels_first':
+                self.layer_branch_right = Concatenate(axis=1)
+            else:
+                self.layer_branch_right = Concatenate()
+            self.layer_branch_right.build(depth_shape_list)
+            right_shape = self.layer_branch_right.compute_output_shape(depth_shape_list)
         else:
-            self.layer_branch_right = Concatenate()
-        self.layer_branch_right.build(depth_shape_list)
-        right_shape = self.layer_branch_right.compute_output_shape(depth_shape_list)
+            self.layer_branch_right = None
+            right_shape = depth_shape_list[0]
         self.layer_branch_right_map = NACUnit(rank = self.rank,
                           filters = self.ofilters,
                           kernel_size = 1,
@@ -4656,7 +4663,10 @@ class _Inceptplus(Layer):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+1, i+1))
                 branch_middle = layer_middle(branch_middle)
             branch_middle_list.append(branch_middle)
-        branch_right = self.layer_branch_right(branch_middle_list)
+        if self.layer_branch_right is not None:
+            branch_right = self.layer_branch_right(branch_middle_list)
+        else:
+            branch_right = branch_middle_list[0]
         branch_right = self.layer_branch_right_map(branch_right)
         outputs = self.layer_merge([branch_left, branch_right])
         return outputs
@@ -4683,7 +4693,10 @@ class _Inceptplus(Layer):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+1, i+1))
                 branch_middle_shape = layer_middle.compute_output_shape(branch_middle_shape)
             branch_middle_shape_list.append(branch_middle_shape)
-        branch_right_shape = self.layer_branch_right.compute_output_shape(branch_middle_shape_list)
+        if self.layer_branch_right is not None:
+            branch_right_shape = self.layer_branch_right.compute_output_shape(branch_middle_shape_list)
+        else:
+            branch_right_shape = branch_middle_shape_list[0]
         branch_right_shape = self.layer_branch_right_map.compute_output_shape(branch_right_shape)
         next_shape = self.layer_merge.compute_output_shape([branch_left_shape, branch_right_shape])
         return next_shape
@@ -5599,12 +5612,16 @@ class _InceptplusTranspose(Layer):
                 setattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+1, i+1), layer_middle)
             depth_shape_list.append(branch_shape)
         # Merge the right branch by concatnation.
-        if self.data_format == 'channels_first':
-            self.layer_branch_right = Concatenate(axis=1)
+        if self.depth > 1:
+            if self.data_format == 'channels_first':
+                self.layer_branch_right = Concatenate(axis=1)
+            else:
+                self.layer_branch_right = Concatenate()
+            self.layer_branch_right.build(depth_shape_list)
+            right_shape = self.layer_branch_right.compute_output_shape(depth_shape_list)
         else:
-            self.layer_branch_right = Concatenate()
-        self.layer_branch_right.build(depth_shape_list)
-        right_shape = self.layer_branch_right.compute_output_shape(depth_shape_list)
+            self.layer_branch_right = None
+            right_shape = depth_shape_list[0]
         self.layer_branch_right_map = NACUnit(rank = self.rank,
                           filters = self.ofilters,
                           kernel_size = 1,
@@ -5678,7 +5695,10 @@ class _InceptplusTranspose(Layer):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+1, i+1))
                 branch_middle = layer_middle(branch_middle)
             branch_middle_list.append(branch_middle)
-        branch_right = self.layer_branch_right(branch_middle_list)
+        if self.layer_branch_right is not None:
+            branch_right = self.layer_branch_right(branch_middle_list)
+        else:
+            branch_right = branch_middle_list[0]
         branch_right = self.layer_branch_right_map(branch_right)
         outputs = self.layer_merge([branch_left, branch_right])
         if self.layer_cropping is not None:
@@ -5712,7 +5732,10 @@ class _InceptplusTranspose(Layer):
                 layer_middle = getattr(self, 'layer_middle_D{0:02d}_{1:02d}'.format(D+1, i+1))
                 branch_middle_shape = layer_middle.compute_output_shape(branch_middle_shape)
             branch_middle_shape_list.append(branch_middle_shape)
-        branch_right_shape = self.layer_branch_right.compute_output_shape(branch_middle_shape_list)
+        if self.layer_branch_right is not None:
+            branch_right_shape = self.layer_branch_right.compute_output_shape(branch_middle_shape_list)
+        else:
+            branch_right_shape = branch_middle_shape_list[0]
         branch_right_shape = self.layer_branch_right_map.compute_output_shape(branch_right_shape)
         next_shape = self.layer_merge.compute_output_shape([branch_left_shape, branch_right_shape])
         if self.layer_cropping is not None:
