@@ -1,6 +1,10 @@
 # Datafiles
 checkpoints/
+checkpoints-cla/
 logs/
+logs-cla/
+/*.txt
+/*.sh
 *.h5
 
 # Byte-compiled / optimized / DLL files

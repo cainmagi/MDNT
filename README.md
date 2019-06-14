@@ -43,6 +43,7 @@ The following demos are working for denoising with MNIST data set.
 * `demo-AConvTranspose`: Autoencoder based on modern convolutional layers.
 * `demo-AConv1DTranspose`: Autoencoder based on modern 1D convolutional layers.
 * `demo-AGroupConvTranspose`: Autoencoder based on modern group convolutional layers.
+* `demo-classification`: Deep network for classification task. This script includes the tests for residual, ResNeXt, inception, inception-residual and inception-plus blocks.
 * `demo-denoising`: Autoencoder for denoising task. This script includes the tests for residual, ResNeXt, inception, inception-residual and inception-plus blocks.
 * `demo-external-1`: External layer test 1. We use numpy-api to convert Cartesian coordinates to polar coordinates.
 * `demo-saveH5`: Save `.h5` file.
@@ -55,6 +56,8 @@ The following demos are working for denoising with MNIST data set.
 ### @ 06/13/2019
 
 1. Merge `demo-ResTranspose`, `demo-ResNeXtTranspose`, `demo-InceptTranspose`, `demo-InceptResTranspose` and `demo-InceptPlusTranspose` together. The merged script is `demo-denoising`.
+2. Update the test (`demo-classification`) for examining the performance on classification task.
+3. Fix a bug of validation in `demo-denoising` and add the correlation metric.
 
 ### @ 06/12/2019
 

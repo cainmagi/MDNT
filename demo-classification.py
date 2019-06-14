@@ -2,32 +2,32 @@
 # -*- coding: UTF8-*- #
 '''
 ####################################################################
-# Demo for denoising.
+# Demo for classification.
 # Yuchen Jin @ cainmagi@gmail.com
 # Requirements: (Pay attention to version)
 #   python 3.6
 #   tensorflow r1.13+
 #   numpy, matplotlib
 # Test the performance of modern layers (advanced blocks) on
-# denoising task. By using different options, users could switch to
+# classification task. By using different options, users could switch to
 # different network structures.
 # (1) Assign the network
 #     using `-nw` to assign the network type, for example, training
 #     a inception network requires:
 #     ```
-#     python demo-denoising.py -m tr -nw ince -s tiinst -mm inst
+#     python demo-classification.py -m tr -nw ince -s tiinst -mm inst
 #     ```
 # (2) Use different normalization.
 #     `-mm` is used to assign the normalization type, for example,
 #     training a network with batch normalization:
 #     ```
-#     python demo-denoising.py -m tr -s trbatch -mm batch
+#     python demo-classification.py -m tr -s trbatch -mm batch
 #     ```
 # (3) Use different dropout.
 #     `-md` is used to set dropout type. If setting a dropout, the
 #     dropout rate would be 0.3. For example, use additive noise:
 #     ```
-#     python demo-denoising.py -m tr -s trinst_d_add --mm inst --md add
+#     python demo-classification.py -m tr -s trinst_d_add --mm inst --md add
 #     ```
 # (4) Reduce learning rate during training.
 #     Tests prove that reducing learning rate would help training
@@ -35,38 +35,29 @@
 #     worse in this case. Use `-rlr` to enable automatic learning
 #     rate scheduler:
 #     ```
-#     python demo-denoising.py -m tr -s trinst_lr -rlr --mm inst
+#     python demo-classification.py -m tr -s trinst_lr -rlr --mm inst
 #     ```
 # (5) Use a different network block depth.
 #     Use `-dp` to set depth. For different kinds of blocks, the
 #     parameter `depth` has different meanings. For example, if
 #     want to use a more narrow incept-plus, use:
 #     ```
-#     python demo-denoising.py -m tr -nw incp -dp 1 -s tipinstd1 -mm inst
+#     python demo-classification.py -m tr -nw incp -dp 1 -s tipinstd1 -mm inst
 #     ```
 # (6) Load a network and perform test.
 #     Because the network configuration has also been saved, users
 #     do not need to set options when loading a model, for example:
 #     ```
-#     python demo-denoising.py -m ts -s trinst -rd model-...
+#     python demo-classification.py -m ts -s trinst -rd model-...
 #     ```
-# Version: 1.25 # 2019/6/14
-# Comments:
-#   Fix a fatal bug for validation.
-# Version: 1.20 # 2019/6/13
-# Comments:
-#   Merge different network tests on denoising together.
-# Version: 1.10 # 2019/6/12
-# Comments:
-#   Enable the tests for dropout methods.
-# Version: 1.00 # 2019/6/9
+# Version: 1.00 # 2019/6/13
 # Comments:
 #   Create this project.
 ####################################################################
 '''
 
 import tensorflow as tf
-from tensorflow.keras.datasets import mnist
+from tensorflow.keras.datasets import cifar10
 import numpy as np
 import random
 import matplotlib.pyplot as plt
@@ -76,36 +67,34 @@ import os, sys
 os.chdir(sys.path[0])
 #mdnt.layers.conv.NEW_CONV_TRANSPOSE=False
 
-def plot_sample(x_test, x_input=None, decoded_imgs=None, n=10):
+classes_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+
+def plot_sample(x_test, x_input=None, labels=None, trueLabels=None, n=10):
     '''
     Plot the first n digits from the input data set
     '''
     plt.figure(figsize=(20, 4))
     rows = 1
-    if decoded_imgs is not None:
-        rows += 1
     if x_input is not None:
         rows += 1
         
-    def plot_row(x, row, n, i):
+    def plot_row(x, row, n, i, labels=None):
         ax = plt.subplot(rows, n, i + 1 + row*n)
-        plt.imshow(x[i].reshape(28, 28))
+        plt.imshow(x[i].reshape(32, 32, 3))
         plt.gray()
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
+        if labels is not None:
+            ax.set_title(classes_names[labels[i]])
         
     for i in range(n):
         # display original
         row = 0
-        plot_row(x_test, row, n, i)
+        plot_row(x_test, row, n, i, labels=trueLabels)
         if x_input is not None:
             # display reconstruction
             row += 1
-            plot_row(x_input, row, n, i)
-        if decoded_imgs is not None:
-            # display reconstruction
-            row += 1
-            plot_row(decoded_imgs, row, n, i)
+            plot_row(x_input, row, n, i, labels=labels)
     plt.show()
     
 def mean_loss_func(lossfunc, name=None, *args, **kwargs):
@@ -143,11 +132,13 @@ def build_model(mode='bias', dropout=None, nwName='res', depth=None):
     # Build the model
     channel_1 = 32  # 32 channels
     channel_2 = 64  # 64 channels
-    channel_3 = 128  # 128 channels
+    channel_3 = 128 # 128 channels
+    channel_4 = 256 # 512 channels
     # this is our input placeholder
-    input_img = tf.keras.layers.Input(shape=(28, 28, 1))
+    input_img = tf.keras.layers.Input(shape=(32, 32, 3))
     # Create encode layers
-    conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(input_img)
+    norm_input = mdnt.layers.InstanceNormalization(axis=-1)(input_img)
+    conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(norm_input)
     for i in range(3):
         conv_1 = Block(channel_1, (3, 3), normalization=mode, activation='prelu', **kwargs)(conv_1)
     conv_2 = Block(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(conv_1)
@@ -156,19 +147,16 @@ def build_model(mode='bias', dropout=None, nwName='res', depth=None):
     conv_3 = Block(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(conv_2)
     for i in range(3):
         conv_3 = Block(channel_3, (3, 3), normalization=mode, activation='prelu', **kwargs)(conv_3)
-    # Create decode layers
-    deconv_1 = BlockTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(conv_3)
-    for i in range(3):
-        deconv_1 = Block(channel_2, (3, 3), normalization=mode, activation='prelu', **kwargs)(deconv_1)
-    deconv_2 = BlockTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(deconv_1)
-    for i in range(3):
-        deconv_2 = Block(channel_1, (3, 3), normalization=mode, activation='prelu', **kwargs)(deconv_2)
-    deconv_3 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), output_mshape=input_img.get_shape(), normalization='bias', padding='same', activation=tf.nn.sigmoid)(deconv_2)
+    conv_4 = mdnt.layers.AConv2D(channel_4, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(conv_3)
+    pool_1 = tf.keras.layers.MaxPooling2D((2,2))(conv_4)
+    pool_1 = tf.keras.layers.Dropout(0.25)(pool_1)
+    flat_1 = tf.keras.layers.Flatten()(pool_1)
+    prediction = tf.keras.layers.Dense(10, activation='softmax')(flat_1)
     # this model maps an input to its reconstruction
-    denoiser = tf.keras.models.Model(input_img, deconv_3)
-    denoiser.summary(line_length=90, positions=[.55, .85, .95, 1.])
+    classifier = tf.keras.models.Model(input_img, prediction)
+    classifier.summary(line_length=90, positions=[.55, .85, .95, 1.])
     
-    return denoiser
+    return classifier
 
 if __name__ == '__main__':
     import argparse
@@ -182,7 +170,7 @@ if __name__ == '__main__':
             raise argparse.ArgumentTypeError('Unsupported value encountered.')
     
     parser = argparse.ArgumentParser(
-        description='Perform regression on an analytic non-linear model in frequency domain.',
+        description='Perform classification on cifar10 dataset.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
@@ -241,7 +229,7 @@ if __name__ == '__main__':
     )
     
     parser.add_argument(
-        '-r', '--rootPath', default='checkpoints', metavar='str',
+        '-r', '--rootPath', default='checkpoints-cla', metavar='str',
         help='''\
         The root path for saving the network.
         '''
@@ -321,62 +309,60 @@ if __name__ == '__main__':
         os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpuNumber)
     
     def load_data():
-        (x_train, _), (x_test, _) = mnist.load_data()
+        (x_train, y_train), (x_test, y_test) = cifar10.load_data()
         x_train = x_train.astype('float32') / 255.
         x_test = x_test.astype('float32') / 255.
-        x_train = x_train.reshape(len(x_train), 28, 28, 1)
-        x_test = x_test.reshape(len(x_test), 28, 28, 1)
+        x_train = x_train.reshape(len(x_train), 32, 32, 3)
+        x_test = x_test.reshape(len(x_test), 32, 32, 3)
         #plot_sample(x_train, n=10)
-        
-        # Add noise
-        noise_factor = 0.5
-        x_train_noisy = x_train + noise_factor * np.random.normal(loc=0.0, scale=1.0, size=x_train.shape) 
-        x_test_noisy = x_test + noise_factor * np.random.normal(loc=0.0, scale=1.0, size=x_test.shape) 
-        x_train_noisy = np.clip(x_train_noisy, 0., 1.)
-        x_test_noisy = np.clip(x_test_noisy, 0., 1.)
-        return x_train, x_test, x_train_noisy, x_test_noisy
+
+        y_train = tf.keras.utils.to_categorical(y_train, 10)
+        y_test = tf.keras.utils.to_categorical(y_test, 10)
+        return x_train, x_test, y_train, y_test
     
     if args.mode.casefold() == 'tr' or args.mode.casefold() == 'train':
-        x_train, x_test, x_train_noisy, x_test_noisy = load_data()
-        denoiser = build_model(mode=args.modelMode, dropout=args.dropoutMode, nwName=args.network, depth=args.blockDepth)
+        x_train, x_test, y_train, y_test = load_data()
+        classifier = build_model(mode=args.modelMode, dropout=args.dropoutMode, nwName=args.network, depth=args.blockDepth)
         if args.modelMode.casefold() == 'bias':
-            denoiser.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
-                                loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'), metrics=[mdnt.functions.metrics.correlation])
+            classifier.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
+                                loss=tf.keras.losses.categorical_crossentropy, metrics=[tf.keras.metrics.categorical_accuracy])
         else:
-            denoiser.compile(optimizer=mdnt.optimizers.optimizer('amsgrad', l_rate=args.learningRate), 
-                                loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'), metrics=[mdnt.functions.metrics.correlation])
+            classifier.compile(optimizer=mdnt.optimizers.optimizer('amsgrad', l_rate=args.learningRate), 
+                                loss=tf.keras.losses.categorical_crossentropy, metrics=[tf.keras.metrics.categorical_accuracy])
         
         folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))
         if os.path.abspath(folder) == '.' or folder == '':
-            args.rootPath = 'checkpoints'
+            args.rootPath = 'checkpoints-cla'
             args.savedPath = 'model'
             folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))
         if tf.gfile.Exists(folder):
             tf.gfile.DeleteRecursively(folder)
-        checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_loss:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
+        checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_categorical_accuracy:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
-        logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs/', args.savedPath), 
+        logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs-cla/', args.savedPath), 
             histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=10)
         if args.reduceLR:
-            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=args.learningRate*0.1, verbose=1)
+            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_categorical_accuracy', mode='max', factor=0.5, patience=5, min_lr=args.learningRate*0.1, verbose=1)
             get_callbacks = [checkpointer, logger, reduce_lr]
         else:
             get_callbacks = [checkpointer, logger]
-        denoiser.fit(x_train_noisy, x_train,
+        classifier.fit(x_train, y_train,
                     epochs=args.epoch,
                     batch_size=args.trainBatchNum,
                     shuffle=True,
-                    validation_data=(x_test_noisy, x_test),
+                    validation_data=(x_test, y_test),
                     callbacks=get_callbacks)
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
-        denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})
-        denoiser.summary(line_length=90, positions=[.55, .85, .95, 1.])
-        #for l in denoiser.layers:
+        classifier = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5')
+        classifier.summary(line_length=90, positions=[.55, .85, .95, 1.])
+        #for l in classifier.layers:
         #    print(l.name, l.trainable_weights)
-        _, x_test, _, x_test_noisy = load_data()
-        decoded_imgs = denoiser.predict(x_test_noisy[:args.testBatchNum, :])
-        plot_sample(x_test[:args.testBatchNum, :], x_test_noisy[:args.testBatchNum, :], decoded_imgs, n=args.testBatchNum)
+        _, x_test, _, y_test = load_data()
+        y_pred = classifier.predict(x_test[:args.testBatchNum, :])
+        y_test = np.argmax(y_test, axis=1)
+        y_pred = np.argmax(y_pred, axis=1)
+        plot_sample(x_test[:args.testBatchNum, :], x_test[:args.testBatchNum, :], y_pred, y_test, n=args.testBatchNum)
     else:
         print('Need to specify the mode manually. (use -m)')
         parser.print_help()
