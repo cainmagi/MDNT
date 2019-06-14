@@ -1,25 +1,62 @@
-#!/usr/python
+#!python
 # -*- coding: UTF8-*- #
 '''
 ####################################################################
-# Demo for transposed ResNeXt layers.
+# Demo for denoising.
 # Yuchen Jin @ cainmagi@gmail.com
 # Requirements: (Pay attention to version)
 #   python 3.6
 #   tensorflow r1.13+
 #   numpy, matplotlib
-# Test the performance of modern transposed ResNeXt layers.
-# Use
-# ```
-# python demo-ResNeXtTranspose.py -m tr -s trninst -mm inst
-# ```
-# to train the network. Then use
-# ```
-# python demo-ResNeXtTranspose.py -m ts -s trninst -mm inst -rd model-...
-# ```
-# to perform the test. Here we use `inst` to set instance
-# normalization.
-# Version: 1.00 # 2019/6/5
+# Test the performance of modern layers (advanced blocks) on
+# denoising task. By using different options, users could switch to
+# different network structures.
+# (1) Assign the network
+#     using `-nw` to assign the network type, for example, training
+#     a inception network requires:
+#     ```
+#     python demo-denoising.py -m tr -nw ince -s tiinst -mm inst
+#     ```
+# (2) Use different normalization.
+#     `-mm` is used to assign the normalization type, for example,
+#     training a network with batch normalization:
+#     ```
+#     python demo-denoising.py -m tr -s trbatch -mm batch
+#     ```
+# (3) Use different dropout.
+#     `-md` is used to set dropout type. If setting a dropout, the
+#     dropout rate would be 0.3. For example, use additive noise:
+#     ```
+#     python demo-denoising.py -m tr -s trinst_d_add --mm inst --md add
+#     ```
+# (4) Reduce learning rate during training.
+#     Tests prove that reducing learning rate would help training
+#     loss converge better. However, the validation loss would be
+#     worse in this case. Use `-rlr` to enable automatic learning
+#     rate scheduler:
+#     ```
+#     python demo-denoising.py -m tr -s trinst_lr -rlr --mm inst
+#     ```
+# (5) Use a different network block depth.
+#     Use `-dp` to set depth. For different kinds of blocks, the
+#     parameter `depth` has different meanings. For example, if
+#     want to use a more narrow incept-plus, use:
+#     ```
+#     python demo-denoising.py -m tr -nw incp -dp 1 -s tipinstd1 -mm inst
+#     ```
+# (6) Load a network and perform test.
+#     Because the network configuration has also been saved, users
+#     do not need to set options when loading a model, for example:
+#     ```
+#     python demo-denoising.py -m ts -s trinst_lr -rd model-...
+#     ```
+# Version: 1.20 # 2019/6/13
+# Comments:
+#   Merge different network tests on denoising together.
+# Version: 1.10 # 2019/6/12
+# Comments:
+#   Enable the tests for dropout methods.
+# Version: 1.00 # 2019/6/9
 # Comments:
 #   Create this project.
 ####################################################################
@@ -75,7 +112,19 @@ def mean_loss_func(lossfunc, name=None, *args, **kwargs):
         wrap_func.__name__ = name
     return wrap_func
 
-def build_model(mode='bias'):
+def get_network_handle(nwName):
+    if nwName == 'res':
+        return mdnt.layers.Residual2D, mdnt.layers.Residual2DTranspose
+    elif nwName == 'resn':
+        return mdnt.layers.Resnext2D, mdnt.layers.Resnext2DTranspose
+    elif nwName == 'ince':
+        return mdnt.layers.Inception2D, mdnt.layers.Inception2DTranspose
+    elif nwName == 'incr':
+        return mdnt.layers.Inceptres2D, mdnt.layers.Inceptres2DTranspose
+    elif nwName == 'incp':
+        return mdnt.layers.Inceptplus2D, mdnt.layers.Inceptplus2DTranspose
+
+def build_model(mode='bias', dropout=None, nwName='res', depth=None):
     # Make configuration
     mode = mode.casefold()
     if not mode in ['batch', 'inst', 'group']:
@@ -83,6 +132,11 @@ def build_model(mode='bias'):
             mode = True
         else:
             mode = False
+    # Get network handles:
+    Block, BlockTranspose = get_network_handle(nwName)
+    kwargs = dict()
+    if depth is not None:
+        kwargs['depth'] = depth
     # Build the model
     channel_1 = 32  # 32 channels
     channel_2 = 64  # 64 channels
@@ -92,20 +146,20 @@ def build_model(mode='bias'):
     # Create encode layers
     conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(input_img)
     for i in range(3):
-        conv_1 = mdnt.layers.Resnext2D(channel_1, (3, 3), normalization=mode, activation='prelu')(conv_1)
-    conv_2 = mdnt.layers.Resnext2D(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_1)
+        conv_1 = Block(channel_1, (3, 3), normalization=mode, activation='prelu', **kwargs)(conv_1)
+    conv_2 = Block(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(conv_1)
     for i in range(3):
-        conv_2 = mdnt.layers.Resnext2D(channel_2, (3, 3), normalization=mode, activation='prelu')(conv_2)
-    conv_3 = mdnt.layers.Resnext2D(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu')(conv_2)
+        conv_2 = Block(channel_2, (3, 3), normalization=mode, activation='prelu', **kwargs)(conv_2)
+    conv_3 = Block(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(conv_2)
     for i in range(3):
-        conv_3 = mdnt.layers.Resnext2D(channel_3, (3, 3), normalization=mode, activation='prelu')(conv_3)
+        conv_3 = Block(channel_3, (3, 3), normalization=mode, activation='prelu', **kwargs)(conv_3)
     # Create decode layers
-    deconv_1 = mdnt.layers.Resnext2DTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu')(conv_3)
+    deconv_1 = BlockTranspose(channel_2, (3, 3), strides=(2, 2), output_mshape=conv_2.get_shape(), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(conv_3)
     for i in range(3):
-        deconv_1 = mdnt.layers.Resnext2D(channel_2, (3, 3), normalization=mode, activation='prelu')(deconv_1)
-    deconv_2 = mdnt.layers.Resnext2DTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu')(deconv_1)
+        deconv_1 = Block(channel_2, (3, 3), normalization=mode, activation='prelu', **kwargs)(deconv_1)
+    deconv_2 = BlockTranspose(channel_1, (3, 3), strides=(2, 2), output_mshape=conv_1.get_shape(), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(deconv_1)
     for i in range(3):
-        deconv_2 = mdnt.layers.Resnext2D(channel_1, (3, 3), normalization=mode, activation='prelu')(deconv_2)
+        deconv_2 = Block(channel_1, (3, 3), normalization=mode, activation='prelu', **kwargs)(deconv_2)
     deconv_3 = mdnt.layers.AConv2DTranspose(1, (3, 3), strides=(2, 2), output_mshape=input_img.get_shape(), normalization='bias', padding='same', activation=tf.nn.sigmoid)(deconv_2)
     # this model maps an input to its reconstruction
     denoiser = tf.keras.models.Model(input_img, deconv_3)
@@ -143,11 +197,43 @@ if __name__ == '__main__':
     parser.add_argument(
         '-mm', '--modelMode', default='bias', metavar='str',
         help='''\
-        The mode of this demo.
+        The mode of this demo. (only for training)
             bias:  use biases instead of using normalization.
             batch: use batch normalization.
             inst : use instance normalization.
             group: use group normalization.
+        '''
+    )
+
+    parser.add_argument(
+        '-md', '--dropoutMode', default=None, metavar='str',
+        help='''\
+        The mode of dropout type in this demo. (only for training)
+            None:    do not use dropout.
+            plain:   use tf.keras.layers.Dropout.
+            add:     use scale-invariant addictive noise.
+            mul:     use multiplicative noise.
+            alpha:   use alpha dropout.
+            spatial: use spatial dropout.
+        '''
+    )
+
+    parser.add_argument(
+        '-nw', '--network', default='res', metavar='str',
+        help='''\
+        The basic network block. (only for training)
+             res: residual block.
+            resn: ResNeXt block.
+            ince: inception block.
+            incr: inception-residual block.
+            incp: inception-plus block.
+        '''
+    )
+
+    parser.add_argument(
+        '-dp', '--blockDepth', default=None, type=int, metavar='int',
+        help='''\
+        The depth of each network block. (only for training)
         '''
     )
     
@@ -210,7 +296,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '-rlr', '--reduceLR', type=str2bool, nargs='?', const=True, default=False, metavar='bool',
         help='''\
-        Use the automatic learning rate reducing scheduler (would reduce LR to 0.1 of the initial configuration if need). (only for train)
+        Use the automatic learning rate reducing scheduler (would reduce LR to 0.1 of the initial configuration if need). (only for training)
         '''
     )
 
@@ -249,7 +335,7 @@ if __name__ == '__main__':
     
     if args.mode.casefold() == 'tr' or args.mode.casefold() == 'train':
         x_train, x_test, x_train_noisy, x_test_noisy = load_data()
-        denoiser = build_model(args.modelMode)
+        denoiser = build_model(mode=args.modelMode, dropout=args.dropoutMode, nwName=args.network, depth=args.blockDepth)
         if args.modelMode.casefold() == 'bias':
             denoiser.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
                                 loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'))
@@ -267,7 +353,7 @@ if __name__ == '__main__':
         checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_loss:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
         logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs/', args.savedPath), 
-            histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=5)
+            histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=10)
         if args.reduceLR:
             reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=args.learningRate*0.1, verbose=1)
             get_callbacks = [checkpointer, logger, reduce_lr]
