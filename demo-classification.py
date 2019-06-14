@@ -380,10 +380,8 @@ if __name__ == '__main__':
             validation_split=0.0
         )
         datagen.fit(x_train)
-        classifier.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size),
+        classifier.fit_generator(datagen.flow(x_train, y_train, batch_size=args.trainBatchNum),
                     epochs=args.epoch,
-                    batch_size=args.trainBatchNum,
-                    shuffle=True,
                     validation_data=(x_test, y_test),
                     callbacks=get_callbacks)
     
