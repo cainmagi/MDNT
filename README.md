@@ -58,6 +58,7 @@ The following demos are working for denoising with MNIST data set.
 1. Merge `demo-ResTranspose`, `demo-ResNeXtTranspose`, `demo-InceptTranspose`, `demo-InceptResTranspose` and `demo-InceptPlusTranspose` together. The merged script is `demo-denoising`.
 2. Update the test (`demo-classification`) for examining the performance on classification task.
 3. Fix a bug of validation in `demo-denoising` and add the correlation metric.
+4. Enable training data augmentation for `demo-classification`.
 
 ### @ 06/12/2019
 
