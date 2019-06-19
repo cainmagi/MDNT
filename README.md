@@ -56,7 +56,7 @@ The following demos are working for denoising with MNIST data set.
 ### @ 06/19/2019
 
 1. Update all tests to the newest MDNT network I/O version.
-2. Adjust the configuration of the network in `demo-classification`.
+2. Adjust the configuration of the network and default arguments in `demo-classification`.
 
 ### @ 06/13/2019
 

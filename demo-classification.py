@@ -268,7 +268,7 @@ if __name__ == '__main__':
     )
     
     parser.add_argument(
-        '-lr', '--learningRate', default=0.01, type=float, metavar='float',
+        '-lr', '--learningRate', default=0.001, type=float, metavar='float',
         help='''\
         The learning rate for training the model. (only for training)
         '''
@@ -362,7 +362,7 @@ if __name__ == '__main__':
         logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs-cla/', args.savedPath), 
             histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=10)
         if args.reduceLR:
-            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_categorical_accuracy', mode='max', factor=0.5, patience=5, min_lr=args.learningRate*0.1, verbose=1)
+            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_categorical_accuracy', mode='max', factor=0.5, patience=5, min_lr=args.learningRate*0.001, verbose=1)
             get_callbacks = [checkpointer, logger, reduce_lr]
         else:
             get_callbacks = [checkpointer, logger]
