@@ -253,7 +253,9 @@ if __name__ == '__main__':
             folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))
         if tf.gfile.Exists(folder):
             tf.gfile.DeleteRecursively(folder)
-        checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_loss:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
+        checkpointer = mdnt.utilities.callbacks.ModelCheckpoint(filepath=os.path.join(folder, 'model'), 
+                                                                record_format='{epoch:02d}e-val_loss_{val_loss:.2f}.h5',
+                                                                keep_max=5, save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
         logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs/', args.savedPath), 
             histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=5)
@@ -270,7 +272,9 @@ if __name__ == '__main__':
                     callbacks=get_callbacks)
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
-        denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5', custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})
+        denoiser = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5',
+                                   headpath=os.path.join(args.rootPath, args.savedPath, 'model')+'.json',
+                                   custom_objects={'mean_binary_crossentropy':mean_loss_func(tf.keras.losses.binary_crossentropy)})
         denoiser.summary(line_length=90, positions=[.55, .85, .95, 1.])
         _, x_test, _, x_test_noisy = load_data()
         decoded_imgs = denoiser.predict(x_test_noisy[:args.testBatchNum, :])

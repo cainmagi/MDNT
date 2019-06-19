@@ -50,6 +50,9 @@
 #     ```
 #     python demo-classification.py -m ts -s trinst -rd model-...
 #     ```
+# Version: 1.20 # 2019/6/19
+# Comments:
+#   Adjust the configuration of the network.
 # Version: 1.10 # 2019/6/13
 # Comments:
 #   Enable training data augmentation.
@@ -119,29 +122,40 @@ def get_network_handle(nwName):
     elif nwName == 'incp':
         return mdnt.layers.Inceptplus2D, mdnt.layers.Inceptplus2DTranspose
 
+def get_normalization_handle(normName):
+    if normName == 'batch':
+        return tf.keras.layers.BatchNormalization
+    elif normName == 'inst':
+        return mdnt.layers.InstanceNormalization
+    elif normName == 'group':
+        return mdnt.layers.GroupNormalization
+    else:
+        return mdnt.layers.InstanceNormalization
+
 def build_model(mode='bias', dropout=None, nwName='res', depth=None):
-    # Make configuration
     mode = mode.casefold()
+    # Get network handles:
+    Block, BlockTranspose = get_network_handle(nwName)
+    Normalize = get_normalization_handle(mode)
+    kwargs = dict()
+    if depth is not None:
+        kwargs['depth'] = depth
+    # Make configuration
     if not mode in ['batch', 'inst', 'group']:
         if mode == 'bias':
             mode = True
         else:
             mode = False
-    # Get network handles:
-    Block, BlockTranspose = get_network_handle(nwName)
-    kwargs = dict()
-    if depth is not None:
-        kwargs['depth'] = depth
     # Build the model
     channel_1 = 32  # 32 channels
     channel_2 = 64  # 64 channels
     channel_3 = 128 # 128 channels
-    channel_4 = 256 # 512 channels
+    #channel_4 = 256 # 512 channels
     # this is our input placeholder
     input_img = tf.keras.layers.Input(shape=(32, 32, 3))
     # Create encode layers
-    norm_input = mdnt.layers.InstanceNormalization(axis=-1)(input_img)
-    conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(norm_input)
+    norm_input = Normalize(axis=-1)(input_img)
+    conv_1 = Block(channel_1, (3, 3), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(norm_input)
     for i in range(3):
         conv_1 = Block(channel_1, (3, 3), normalization=mode, activation='prelu', **kwargs)(conv_1)
     conv_2 = Block(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(conv_1)
@@ -150,8 +164,9 @@ def build_model(mode='bias', dropout=None, nwName='res', depth=None):
     conv_3 = Block(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(conv_2)
     for i in range(3):
         conv_3 = Block(channel_3, (3, 3), normalization=mode, activation='prelu', **kwargs)(conv_3)
-    conv_4 = mdnt.layers.AConv2D(channel_4, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', padding='same')(conv_3)
-    pool_1 = tf.keras.layers.MaxPooling2D((2,2))(conv_4)
+    conv_3 = Normalize(axis=-1)(conv_3)
+    conv_3 = tf.keras.layers.PReLU(shared_axes=[1,2])(conv_3)
+    pool_1 = tf.keras.layers.AveragePooling2D((8,8))(conv_3)
     pool_1 = tf.keras.layers.Dropout(0.25)(pool_1)
     flat_1 = tf.keras.layers.Flatten()(pool_1)
     prediction = tf.keras.layers.Dense(10, activation='softmax')(flat_1)
@@ -267,7 +282,7 @@ if __name__ == '__main__':
     )
     
     parser.add_argument(
-        '-tbn', '--trainBatchNum', default=256, type=int, metavar='int',
+        '-tbn', '--trainBatchNum', default=32, type=int, metavar='int',
         help='''\
         The number of samples per batch for training. (only for training)
         '''
@@ -340,7 +355,9 @@ if __name__ == '__main__':
             folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))
         if tf.gfile.Exists(folder):
             tf.gfile.DeleteRecursively(folder)
-        checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath='-'.join((os.path.join(folder, 'model'), '{epoch:02d}e-val_acc_{val_categorical_accuracy:.2f}.h5')), save_best_only=True, verbose=1,  period=5)
+        checkpointer = mdnt.utilities.callbacks.ModelCheckpoint(filepath=os.path.join(folder, 'model'),
+                                                                record_format='{epoch:02d}e-val_loss_{val_loss:.2f}.h5',
+                                                                keep_max=5, save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
         logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs-cla/', args.savedPath), 
             histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=10)
@@ -386,7 +403,8 @@ if __name__ == '__main__':
                     callbacks=get_callbacks)
     
     elif args.mode.casefold() == 'ts' or args.mode.casefold() == 'test':
-        classifier = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5')
+        classifier = mdnt.load_model(os.path.join(args.rootPath, args.savedPath, args.readModel)+'.h5',
+                                     headpath=os.path.join(args.rootPath, args.savedPath, 'model')+'.json')
         classifier.summary(line_length=90, positions=[.55, .85, .95, 1.])
         #for l in classifier.layers:
         #    print(l.name, l.trainable_weights)

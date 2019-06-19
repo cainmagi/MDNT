@@ -154,12 +154,19 @@ if __name__ == '__main__':
     elif args.mode.casefold() == 'wt' or args.mode.casefold() == 'write':
         with tf.name_scope(args.modelName):
             cart2polar_model = build_model()
+        mdnt.save_model(cart2polar_model,
+                        filepath=args.savePath+'.h5',
+                        headpath=args.savePath+'_model.json',
+                        optmpath=args.savePath+'_optm.json')
         cart2polar_model.save(args.savedPath+'.h5')
         print('Model saved to {0}'.format(args.savedPath+'.h5'))
         exit(0)
     elif args.mode.casefold() == 'rd' or args.mode.casefold() == 'read':
         with tf.name_scope(args.modelName):
-            cart2polar_model = mdnt.load_model(args.savedPath+'.h5', custom_objects=customObj)
+            cart2polar_model = mdnt.load_model(filepath=args.savedPath+'.h5',
+                                               headpath=args.savePath+'_model.json',
+                                               optmpath=args.savePath+'_optm.json'
+                                               custom_objects=customObj)
         cart2polar_model.summary()
     else:
         print('Need to specify the mode manually. (use -m)')
