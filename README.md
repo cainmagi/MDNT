@@ -46,13 +46,21 @@ Now we have such progress on the semi-product:
     - [x] (metrics): Pearson correlation coefficient
     - [x] (metrics): IoU / Jaccard index
 - [ ] utilities:
+    - [x] Revised save and load model functions.
     - [ ] Beholder plug-in callback.
+    - [x] Revised ModelCheckpoint callback.
+    - [ ] Extended data visualization tools.
 
 ## Demos
 
 Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
+
+### 0.60 @ 06/19/2019
+
+1. Support totally new `save_model` and `load_model` APIs in `.utilites`.
+2. Finish `ModelCheckpoint` in `.utilities.callbacks`.
 
 ### 0.56 @ 06/13/2019
 

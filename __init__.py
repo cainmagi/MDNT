@@ -22,6 +22,11 @@
 #          metrics.correlation,
 #          metrics.jaccard_index
 #          in .functions (may require tests in the future).
+# Version 0.60 # 2019/6/19
+# Comments:
+#   1. Support totally new save_model and load_model APIs in
+#      .utilites.
+#   2. Finish ModelCheckpoint in .utilities.callbacks.
 # Version: 0.54 # 2019/6/12
 # Comments:
 #   1. Add dropout options to all advanced blocks (including
@@ -134,24 +139,22 @@ from . import optimizers
 from . import layers
 from . import data
 from . import functions
+from . import utilities
 
-__version__ = '0.56'
+__version__ = '0.60'
+
+# Alias
+save_model = utilities.save_model
+load_model = utilities.load_model
+
+__all__ = [
+            'optimizers', 'layers', 'data', 'functions', 'utilities',
+            'save_model', 'load_model'
+          ]
 
 # Set this local module as the prefered one
 from pkgutil import extend_path
 __path__ = extend_path(__path__, __name__)
-
-# Merge custom objects from sub-modules
-from tensorflow.python.keras.engine.saving import load_model as _load_model
-customObjects = dict()
-customObjects.update(layers.customObjects)
-customObjects.update(functions.customObjects)
-def load_model(filepath, custom_objects=None, compile=True, *args, **kwargs):
-    if isinstance(custom_objects, dict):
-        custom_objects.update(customObjects)
-    else:
-        custom_objects = customObjects
-    return _load_model(filepath, custom_objects, compile, *args, **kwargs)
     
 # Delete private sub-modules and objects
 del extend_path
