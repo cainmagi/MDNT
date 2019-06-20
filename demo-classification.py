@@ -51,11 +51,12 @@
 #     ```
 #     python demo-classification.py -m ts -s trinst -rd model-...
 #     ```
-# Version: 1.21 # 2019/6/20
+# Version: 1.23 # 2019/6/20
 # Comments:
 # 1. Enable the option for using a manual scheduling strategy.
 # 2. Make the network configurations more similar to those of the
 #    Keras example.
+# 3. Enable the repetition option.
 # Version: 1.21 # 2019/6/20
 # Comments:
 #   Enable the option for using a different optimizer.
@@ -141,7 +142,7 @@ def get_normalization_handle(normName):
     else:
         return mdnt.layers.InstanceNormalization
 
-def build_model(mode='bias', dropout=None, nwName='res', depth=None):
+def build_model(mode='bias', dropout=None, nwName='res', depth=None, blockLen=3):
     mode = mode.casefold()
     # Get network handles:
     Block, BlockTranspose = get_network_handle(nwName)
@@ -169,14 +170,14 @@ def build_model(mode='bias', dropout=None, nwName='res', depth=None):
     input_img = tf.keras.layers.Input(shape=(32, 32, 3))
     # Create encode layers
     norm_input = Normalize(axis=-1)(input_img)
-    conv_1 = Block(channel_1, (3, 3), dropout=dropout, **kwargs)(norm_input)
-    for i in range(3):
+    conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), padding='same', **kwargs)(norm_input)
+    for i in range(blockLen):
         conv_1 = Block(channel_1, (3, 3), **kwargs)(conv_1)
     conv_2 = Block(channel_2, (3, 3), strides=(2, 2), dropout=dropout, **kwargs)(conv_1)
-    for i in range(3):
+    for i in range(blockLen):
         conv_2 = Block(channel_2, (3, 3), **kwargs)(conv_2)
     conv_3 = Block(channel_3, (3, 3), strides=(2, 2), dropout=dropout, **kwargs)(conv_2)
-    for i in range(3):
+    for i in range(blockLen):
         conv_3 = Block(channel_3, (3, 3), **kwargs)(conv_3)
     conv_3 = Normalize(axis=-1)(conv_3)
     if kwargs['activation'] == 'prelu':
@@ -267,6 +268,13 @@ if __name__ == '__main__':
         '-dp', '--blockDepth', default=None, type=int, metavar='int',
         help='''\
         The depth of each network block. (only for training)
+        '''
+    )
+
+    parser.add_argument(
+        '-rp', '--blockRepeat', default=None, type=int, metavar='int',
+        help='''\
+        The repetition of blocks in each stage. (only for training)
         '''
     )
     
@@ -394,7 +402,7 @@ if __name__ == '__main__':
             print('Learning rate: ', lr)
             return lr
         x_train, x_test, y_train, y_test = load_data()
-        classifier = build_model(mode=args.modelMode, dropout=args.dropoutMode, nwName=args.network, depth=args.blockDepth)
+        classifier = build_model(mode=args.modelMode, dropout=args.dropoutMode, nwName=args.network, depth=args.blockDepth, blockLen=args.blockRepeat)
         if args.modelMode.casefold() == 'bias':
             classifier.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
                                 loss=tf.keras.losses.categorical_crossentropy, metrics=[tf.keras.metrics.categorical_accuracy])
