@@ -368,7 +368,7 @@ if __name__ == '__main__':
                                                                 keep_max=5, save_best_only=True, verbose=1,  period=5)
         tf.gfile.MakeDirs(folder)
         logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs/', args.savedPath), 
-            histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=10)
+            histogram_freq=(args.epoch//5), write_graph=True, write_grads=False, write_images=False, update_freq=10)
         if args.reduceLR:
             reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=args.learningRate*0.1, verbose=1)
             get_callbacks = [checkpointer, logger, reduce_lr]
