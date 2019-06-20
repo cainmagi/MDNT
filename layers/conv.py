@@ -25,6 +25,10 @@
 # Here we also implement some tied convolutional layers, note
 # that it is necessary to set name scope if using them in multi-
 # models.
+# Version: 0.61 # 2019/6/20
+# Comments:
+#   Fix a bug for using bias when set normalization=None in 
+#   AConv.
 # Version: 0.60 # 2019/6/12
 # Comments:
 #   Strengthen the compatibility.
@@ -1304,7 +1308,7 @@ class _AConv(Layer):
             self.gamma_regularizer = None
             self.gamma_constraint = None
         else:
-            self.use_bias = True
+            self.use_bias = False
             self.gamma_initializer = None
             self.gamma_regularizer = None
             self.gamma_constraint = None

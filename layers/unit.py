@@ -21,6 +21,10 @@
 # The norm-actv-conv structure is proved to be effective by 
 # this paper:
 #   https://arxiv.org/abs/1603.05027
+# Version: 0.21 # 2019/6/20
+# Comments:
+#   Fix a bug for using bias when using group convlution in
+#   NACUnit and NACUnitTranspose.
 # Version: 0.20 # 2019/6/12
 # Comments:
 #   Strengthen the compatibility.
@@ -302,7 +306,7 @@ class NACUnit(Layer):
                                          data_format=self.data_format,
                                          dilation_rate=self.dilation_rate,
                                          activation=None,
-                                         use_bias=self.use_bias,
+                                         use_bias=self._use_bias,
                                          bias_initializer=bias_initializer,
                                          bias_regularizer=bias_regularizer,
                                          bias_constraint=bias_constraint,
@@ -755,7 +759,7 @@ class NACUnitTranspose(Layer):
                                              data_format=self.data_format,
                                              dilation_rate=self.dilation_rate,
                                              activation=None,
-                                             use_bias=self.use_bias,
+                                             use_bias=self._use_bias,
                                              bias_initializer=bias_initializer,
                                              bias_regularizer=bias_regularizer,
                                              bias_constraint=bias_constraint,

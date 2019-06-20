@@ -57,6 +57,10 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.60-b @ 06/19/2019
+
+Fix some bugs in `.layers.conv` and `.layers.unit`.
+
 ### 0.60 @ 06/19/2019
 
 1. Support totally new `save_model` and `load_model` APIs in `.utilites`.
