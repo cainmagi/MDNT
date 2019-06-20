@@ -50,6 +50,9 @@
 #     ```
 #     python demo-classification.py -m ts -s trinst -rd model-...
 #     ```
+# Version: 1.21 # 2019/6/20
+# Comments:
+#   Enable the option for using a different optimizer.
 # Version: 1.20 # 2019/6/19
 # Comments:
 #   Adjust the configuration of the network.
@@ -241,6 +244,13 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
+        '-o', '--optimizer', default='amsgrad', metavar='str',
+        help='''\
+        The optimizer for training the network. When setting normalization as 'bias', the optimizer would be overrided by SGD+Momentum.
+        '''
+    )
+
+    parser.add_argument(
         '-dp', '--blockDepth', default=None, type=int, metavar='int',
         help='''\
         The depth of each network block. (only for training)
@@ -346,7 +356,7 @@ if __name__ == '__main__':
             classifier.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
                                 loss=tf.keras.losses.categorical_crossentropy, metrics=[tf.keras.metrics.categorical_accuracy])
         else:
-            classifier.compile(optimizer=mdnt.optimizers.optimizer('amsgrad', l_rate=args.learningRate), 
+            classifier.compile(optimizer=mdnt.optimizers.optimizer(args.optimizer, l_rate=args.learningRate), 
                                 loss=tf.keras.losses.categorical_crossentropy, metrics=[tf.keras.metrics.categorical_accuracy])
         
         folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))

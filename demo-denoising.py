@@ -50,6 +50,9 @@
 #     ```
 #     python demo-denoising.py -m ts -s trinst -rd model-...
 #     ```
+# Version: 1.26 # 2019/6/20
+# Comments:
+#   Enable the option for using a different optimizer.
 # Version: 1.25 # 2019/6/14
 # Comments:
 #   Fix a fatal bug for validation.
@@ -234,6 +237,13 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
+        '-o', '--optimizer', default='amsgrad', metavar='str',
+        help='''\
+        The optimizer for training the network. When setting normalization as 'bias', the optimizer would be overrided by SGD+Momentum.
+        '''
+    )
+
+    parser.add_argument(
         '-dp', '--blockDepth', default=None, type=int, metavar='int',
         help='''\
         The depth of each network block. (only for training)
@@ -343,7 +353,7 @@ if __name__ == '__main__':
             denoiser.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
                                 loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'), metrics=[mdnt.functions.metrics.correlation])
         else:
-            denoiser.compile(optimizer=mdnt.optimizers.optimizer('amsgrad', l_rate=args.learningRate), 
+            denoiser.compile(optimizer=mdnt.optimizers.optimizer(args.optimizer, l_rate=args.learningRate), 
                                 loss=mean_loss_func(tf.keras.losses.binary_crossentropy, name='mean_binary_crossentropy'), metrics=[mdnt.functions.metrics.correlation])
         
         folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))

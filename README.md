@@ -57,6 +57,7 @@ The following demos are working for denoising with MNIST data set.
 
 1. Add L<sub>2</sub> regularization for kernels in `demo-classification`.
 2. Change the monitored measurement in model checkpointer to `val_acc`.
+3. Enable the optimizer option for `demo-classification` and `demo-denoising`.
 
 ### @ 06/19/2019
 
