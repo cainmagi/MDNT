@@ -153,6 +153,12 @@ def build_model(mode='bias', dropout=None, nwName='res', depth=None, blockLen=3)
             mode = True
         else:
             mode = False
+    cwkwargs = {
+        'normalization': mode,
+        'kernel_initializer': tf.keras.initializers.he_normal(),
+        'kernel_regularizer': tf.keras.regularizers.l2(1e-4),
+        'activation': 'relu'
+    }
     kwargs = {
         'normalization': mode,
         'kernel_initializer': tf.keras.initializers.he_normal(),
@@ -170,7 +176,7 @@ def build_model(mode='bias', dropout=None, nwName='res', depth=None, blockLen=3)
     input_img = tf.keras.layers.Input(shape=(32, 32, 3))
     # Create encode layers
     norm_input = Normalize(axis=-1)(input_img)
-    conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), padding='same', **kwargs)(norm_input)
+    conv_1 = mdnt.layers.AConv2D(channel_1, (3, 3), padding='same', **cwkwargs)(norm_input)
     for i in range(blockLen):
         conv_1 = Block(channel_1, (3, 3), **kwargs)(conv_1)
     conv_2 = Block(channel_2, (3, 3), strides=(2, 2), dropout=dropout, **kwargs)(conv_1)
