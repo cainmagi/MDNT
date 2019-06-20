@@ -138,6 +138,7 @@ def build_model(mode='bias', dropout=None, nwName='res', depth=None):
     Block, BlockTranspose = get_network_handle(nwName)
     Normalize = get_normalization_handle(mode)
     kwargs = dict()
+    kwargs['kernel_regularizer'] = tf.keras.regularizers.l2(1e-4)
     if depth is not None:
         kwargs['depth'] = depth
     # Make configuration
@@ -356,8 +357,8 @@ if __name__ == '__main__':
         if tf.gfile.Exists(folder):
             tf.gfile.DeleteRecursively(folder)
         checkpointer = mdnt.utilities.callbacks.ModelCheckpoint(filepath=os.path.join(folder, 'model'),
-                                                                record_format='{epoch:02d}e-val_loss_{val_loss:.2f}.h5',
-                                                                keep_max=5, save_best_only=True, verbose=1,  period=5)
+                                                                record_format='{epoch:02d}e-val_acc_{val_categorical_accuracy:.2f}.h5',
+                                                                keep_max=5, save_best_only=True, verbose=1, period=5)
         tf.gfile.MakeDirs(folder)
         logger = tf.keras.callbacks.TensorBoard(log_dir=os.path.join('./logs-cla/', args.savedPath), 
             histogram_freq=5, write_graph=True, write_grads=False, write_images=False, update_freq=10)

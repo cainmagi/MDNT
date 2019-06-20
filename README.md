@@ -53,6 +53,11 @@ The following demos are working for denoising with MNIST data set.
 
 ## Update records
 
+### @ 06/20/2019
+
+1. Add L<sub>2</sub> regularization for kernels in `demo-classification`.
+2. Change the monitored measurement in model checkpointer to `val_acc`.
+
 ### @ 06/19/2019
 
 1. Update all tests to the newest MDNT network I/O version.
