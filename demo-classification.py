@@ -278,7 +278,7 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        '-rp', '--blockRepeat', default=None, type=int, metavar='int',
+        '-rp', '--blockRepeat', default=3, type=int, metavar='int',
         help='''\
         The repetition of blocks in each stage. (only for training)
         '''
