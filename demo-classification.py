@@ -33,7 +33,8 @@
 #     Tests prove that reducing learning rate would help training
 #     loss converge better. However, the validation loss would be
 #     worse in this case. Use `-rlr` to enable automatic learning
-#     rate scheduler:
+#     rate scheduler, `-slr` to enable manual learning rate
+#     scheduler:
 #     ```
 #     python demo-classification.py -m tr -s trinst_lr -rlr --mm inst
 #     ```
@@ -50,6 +51,11 @@
 #     ```
 #     python demo-classification.py -m ts -s trinst -rd model-...
 #     ```
+# Version: 1.21 # 2019/6/20
+# Comments:
+# 1. Enable the option for using a manual scheduling strategy.
+# 2. Make the network configurations more similar to those of the
+#    Keras example.
 # Version: 1.21 # 2019/6/20
 # Comments:
 #   Enable the option for using a different optimizer.
@@ -140,16 +146,20 @@ def build_model(mode='bias', dropout=None, nwName='res', depth=None):
     # Get network handles:
     Block, BlockTranspose = get_network_handle(nwName)
     Normalize = get_normalization_handle(mode)
-    kwargs = dict()
-    kwargs['kernel_regularizer'] = tf.keras.regularizers.l2(1e-4)
-    if depth is not None:
-        kwargs['depth'] = depth
     # Make configuration
     if not mode in ['batch', 'inst', 'group']:
         if mode == 'bias':
             mode = True
         else:
             mode = False
+    kwargs = {
+        'normalization': mode,
+        'kernel_initializer': tf.keras.initializers.he_normal(),
+        'kernel_regularizer': tf.keras.regularizers.l2(1e-4),
+        'activation': 'relu'
+    }
+    if depth is not None:
+        kwargs['depth'] = depth
     # Build the model
     channel_1 = 32  # 32 channels
     channel_2 = 64  # 64 channels
@@ -159,21 +169,24 @@ def build_model(mode='bias', dropout=None, nwName='res', depth=None):
     input_img = tf.keras.layers.Input(shape=(32, 32, 3))
     # Create encode layers
     norm_input = Normalize(axis=-1)(input_img)
-    conv_1 = Block(channel_1, (3, 3), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(norm_input)
+    conv_1 = Block(channel_1, (3, 3), dropout=dropout, **kwargs)(norm_input)
     for i in range(3):
-        conv_1 = Block(channel_1, (3, 3), normalization=mode, activation='prelu', **kwargs)(conv_1)
-    conv_2 = Block(channel_2, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(conv_1)
+        conv_1 = Block(channel_1, (3, 3), **kwargs)(conv_1)
+    conv_2 = Block(channel_2, (3, 3), strides=(2, 2), dropout=dropout, **kwargs)(conv_1)
     for i in range(3):
-        conv_2 = Block(channel_2, (3, 3), normalization=mode, activation='prelu', **kwargs)(conv_2)
-    conv_3 = Block(channel_3, (3, 3), strides=(2, 2), normalization=mode, activation='prelu', dropout=dropout, **kwargs)(conv_2)
+        conv_2 = Block(channel_2, (3, 3), **kwargs)(conv_2)
+    conv_3 = Block(channel_3, (3, 3), strides=(2, 2), dropout=dropout, **kwargs)(conv_2)
     for i in range(3):
-        conv_3 = Block(channel_3, (3, 3), normalization=mode, activation='prelu', **kwargs)(conv_3)
+        conv_3 = Block(channel_3, (3, 3), **kwargs)(conv_3)
     conv_3 = Normalize(axis=-1)(conv_3)
-    conv_3 = tf.keras.layers.PReLU(shared_axes=[1,2])(conv_3)
+    if kwargs['activation'] == 'prelu':
+        conv_3 = tf.keras.layers.PReLU(shared_axes=[1,2])(conv_3)
+    else:
+        conv_3 = tf.keras.layers.Activation(kwargs['activation'])(conv_3)
     pool_1 = tf.keras.layers.AveragePooling2D((8,8))(conv_3)
     pool_1 = tf.keras.layers.Dropout(0.25)(pool_1)
     flat_1 = tf.keras.layers.Flatten()(pool_1)
-    prediction = tf.keras.layers.Dense(10, activation='softmax')(flat_1)
+    prediction = tf.keras.layers.Dense(10, activation='softmax', kernel_initializer=kwargs['kernel_initializer'])(flat_1)
     # this model maps an input to its reconstruction
     classifier = tf.keras.models.Model(input_img, prediction)
     classifier.summary(line_length=90, positions=[.55, .85, .95, 1.])
@@ -286,7 +299,7 @@ if __name__ == '__main__':
     )
     
     parser.add_argument(
-        '-e', '--epoch', default=20, type=int, metavar='int',
+        '-e', '--epoch', default=120, type=int, metavar='int',
         help='''\
         The number of epochs for training. (only for training)
         '''
@@ -316,7 +329,14 @@ if __name__ == '__main__':
     parser.add_argument(
         '-rlr', '--reduceLR', type=str2bool, nargs='?', const=True, default=False, metavar='bool',
         help='''\
-        Use the automatic learning rate reducing scheduler (would reduce LR to 0.1 of the initial configuration if need). (only for training)
+        Use the automatic learning rate reducing scheduler (would reduce LR to 0.001 of the initial configuration if need, and override the settings for learning rate scheduling). (only for training)
+        '''
+    )
+
+    parser.add_argument(
+        '-slr', '--scheduleLR', type=str2bool, nargs='?', const=True, default=False, metavar='bool',
+        help='''\
+        Use the manual learning rate scheduler (would reduce LR to 0.0005 of the initial configuration if need, the scheduling would be divided into 5 phases during the whole optimization). (only for training)
         '''
     )
 
@@ -350,6 +370,29 @@ if __name__ == '__main__':
         return x_train, x_test, y_train, y_test
     
     if args.mode.casefold() == 'tr' or args.mode.casefold() == 'train':
+        def lr_schedule(epoch):
+            """Learning Rate Schedule
+
+            Learning rate is scheduled to be reduced after 80, 120, 160, 180 epochs.
+            Called automatically every epoch as part of callbacks during training.
+
+            # Arguments
+                epoch (int): The number of epochs
+
+            # Returns
+                lr (float32): learning rate
+            """
+            lr = args.learningRate
+            if epoch > int(0.9*args.epoch):
+                lr *= 0.5e-3
+            elif epoch > int(0.8*args.epoch):
+                lr *= 1e-3
+            elif epoch > int(0.6*args.epoch):
+                lr *= 1e-2
+            elif epoch > int(0.4*args.epoch):
+                lr *= 1e-1
+            print('Learning rate: ', lr)
+            return lr
         x_train, x_test, y_train, y_test = load_data()
         classifier = build_model(mode=args.modelMode, dropout=args.dropoutMode, nwName=args.network, depth=args.blockDepth)
         if args.modelMode.casefold() == 'bias':
@@ -375,6 +418,9 @@ if __name__ == '__main__':
         if args.reduceLR:
             reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_categorical_accuracy', mode='max', factor=0.5, patience=5, min_lr=args.learningRate*0.001, verbose=1)
             get_callbacks = [checkpointer, logger, reduce_lr]
+        elif args.scheduleLR:
+            schedule_lr = tf.keras.callbacks.LearningRateScheduler(lr_schedule)
+            get_callbacks = [checkpointer, logger, schedule_lr]
         else:
             get_callbacks = [checkpointer, logger]
 

@@ -58,6 +58,8 @@ The following demos are working for denoising with MNIST data set.
 1. Add L<sub>2</sub> regularization for kernels in `demo-classification`.
 2. Change the monitored measurement in model checkpointer to `val_acc`.
 3. Enable the optimizer option for `demo-classification` and `demo-denoising`.
+4. Enable the manual scheduling option for `demo-classification`.
+5. Make the configuations for the network in `demo-classification` more similar to original Keras example.
 
 ### @ 06/19/2019
 
