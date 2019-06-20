@@ -49,6 +49,10 @@
 #   https://arxiv.org/abs/1611.05431
 #
 # layers has been modified according to the residual-v2 theory.
+# Version: 0.41 # 2019/6/20
+# Comments:
+#   Remove the normalization for the projection convolutional
+#   branch of the residual block and the ResNeXt block.
 # Version: 0.40 # 2019/6/12
 # Comments:
 #   1. Fix the bug for calculating spatial dropout.
@@ -318,14 +322,10 @@ class _Residual(Layer):
                           kernel_initializer=self.kernel_initializer,
                           kernel_regularizer=self.kernel_regularizer,
                           kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
+                          normalization='bias',
                           beta_initializer=self.beta_initializer,
-                          gamma_initializer=self.gamma_initializer,
                           beta_regularizer=self.beta_regularizer,
-                          gamma_regularizer=self.gamma_regularizer,
                           beta_constraint=self.beta_constraint,
-                          gamma_constraint=self.gamma_constraint,
-                          groups=self.groups,
                           activation=None,
                           activity_config=None,
                           activity_regularizer=None,
@@ -1252,14 +1252,10 @@ class _ResidualTranspose(Layer):
                           kernel_initializer=self.kernel_initializer,
                           kernel_regularizer=self.kernel_regularizer,
                           kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
+                          normalization='bias',
                           beta_initializer=self.beta_initializer,
-                          gamma_initializer=self.gamma_initializer,
                           beta_regularizer=self.beta_regularizer,
-                          gamma_regularizer=self.gamma_regularizer,
                           beta_constraint=self.beta_constraint,
-                          gamma_constraint=self.gamma_constraint,
-                          groups=self.groups,
                           activation=None,
                           activity_config=None,
                           activity_regularizer=None,
@@ -2214,14 +2210,10 @@ class _Resnext(Layer):
                           kernel_initializer=self.kernel_initializer,
                           kernel_regularizer=self.kernel_regularizer,
                           kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
+                          normalization='bias',
                           beta_initializer=self.beta_initializer,
-                          gamma_initializer=self.gamma_initializer,
                           beta_regularizer=self.beta_regularizer,
-                          gamma_regularizer=self.gamma_regularizer,
                           beta_constraint=self.beta_constraint,
-                          gamma_constraint=self.gamma_constraint,
-                          groups=self.groups,
                           activation=None,
                           activity_config=None,
                           activity_regularizer=None,
@@ -3171,14 +3163,10 @@ class _ResnextTranspose(Layer):
                           kernel_initializer=self.kernel_initializer,
                           kernel_regularizer=self.kernel_regularizer,
                           kernel_constraint=self.kernel_constraint,
-                          normalization=self.normalization,
+                          normalization='bias',
                           beta_initializer=self.beta_initializer,
-                          gamma_initializer=self.gamma_initializer,
                           beta_regularizer=self.beta_regularizer,
-                          gamma_regularizer=self.gamma_regularizer,
                           beta_constraint=self.beta_constraint,
-                          gamma_constraint=self.gamma_constraint,
-                          groups=self.groups,
                           activation=None,
                           activity_config=None,
                           activity_regularizer=None,

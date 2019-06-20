@@ -14,6 +14,16 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version 0.60-b # 2019/6/20
+# Comments:
+#   1. Fix some bugs in .layers.conv and .layers.unit.
+#   2. Remove the normalization layer from all projection 
+#      branches in .layers.residual and .layers.inception.
+# Version 0.60 # 2019/6/19
+# Comments:
+#   1. Support totally new save_model and load_model APIs in
+#      .utilites.
+#   2. Finish ModelCheckpoint in .utilities.callbacks.
 # Version: 0.56 # 2019/6/13
 # Comments:
 #   Finish losses.linear_jaccard_index, 
@@ -22,11 +32,6 @@
 #          metrics.correlation,
 #          metrics.jaccard_index
 #          in .functions (may require tests in the future).
-# Version 0.60 # 2019/6/19
-# Comments:
-#   1. Support totally new save_model and load_model APIs in
-#      .utilites.
-#   2. Finish ModelCheckpoint in .utilities.callbacks.
 # Version: 0.54 # 2019/6/12
 # Comments:
 #   1. Add dropout options to all advanced blocks (including

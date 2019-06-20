@@ -59,7 +59,8 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ### 0.60-b @ 06/19/2019
 
-Fix some bugs in `.layers.conv` and `.layers.unit`.
+1. Fix some bugs in `.layers.conv` and `.layers.unit`.
+2. Remove the normalization layer from all projection branches in `.layers.residual` and `.layers.inception`.
 
 ### 0.60 @ 06/19/2019
 
