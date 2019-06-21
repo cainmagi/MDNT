@@ -39,10 +39,12 @@ from tensorflow.python.util import serialization
 
 from ..layers import customObjects as customObjects_layers
 from ..functions import customObjects as customObjects_functions
+from ..optimizers import customObjects as customObjects_optimizers
 
 customObjects = dict()
 customObjects.update(customObjects_layers)
 customObjects.update(customObjects_functions)
+customObjects.update(customObjects_optimizers)
 
 # pylint: disable=g-import-not-at-top
 try:

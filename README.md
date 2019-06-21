@@ -11,7 +11,9 @@ Still not available now, will implement in the future.
 Now we have such progress on the semi-product:
 
 - [ ] optimzers:
-    - still working on it.
+    - [x] Manually switched optimizers (`Adam2SGD` and `NAdam2NSGD`).
+    - [ ] Advanced adaptive optimizers (`NAdam` supporting `amsgrad` and `Nadabound`).
+    - [ ] Parameter decay strategy (L1 decay and L2 decay).
     - [x] Wrapped default optimizers.
 - [x] layers:
     - [x] Tied dense layer for the symmetric autoencoder.
@@ -57,7 +59,12 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
-### 0.60-b @ 06/19/2019
+### 0.62 @ 06/21/2019
+
+1. Finish the manually switched optimizers in `.optimizers`: `Adam2SGD` and `NAdam2NSGD`. Both of them supports amsgrad mode.
+2. Adjust the fast interface `.optimizers.optimizer`. Now it supports 2 more tensorflow based optimizers and the default momentum of Nesterov SGD optimizer is changed to 0.9.
+
+### 0.60-b @ 06/20/2019
 
 1. Fix some bugs in `.layers.conv` and `.layers.unit`.
 2. Remove the normalization layer from all projection branches in `.layers.residual` and `.layers.inception`.

@@ -16,12 +16,19 @@
 '''
 # Import sub-modules
 from ._default import optimizer as optimizer
+from .mixture import Adam2SGD, Nadam2NSGD
+
+# Set optimizer dictionaries
+customObjects = {
+    'Adam2SGD': Adam2SGD,
+    'Nadam2NSGD': Nadam2NSGD
+}
 
 # Set this local module as the prefered one
 from pkgutil import extend_path
 __path__ = extend_path(__path__, __name__)
 
-__all__ = ['optimizer']
+__all__ = list(customObjects.keys())
 
 # Delete private sub-modules and objects
 del _default

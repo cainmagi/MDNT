@@ -14,6 +14,15 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version 0.62 # 2019/6/21
+# Comments:
+#   1. Finish the manually switched optimizers in .optimizers:
+#      Adam2SGD and NAdam2NSGD. Both of them supports amsgrad
+#      mode.
+#   2. Adjust the fast interface .optimizers.optimizer. Now
+#      it supports 2 more tensorflow based optimizers and the
+#      default momentum of Nesterov SGD optimizer is changed
+#      to 0.9.
 # Version 0.60-b # 2019/6/20
 # Comments:
 #   1. Fix some bugs in .layers.conv and .layers.unit.
@@ -146,7 +155,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.60-b'
+__version__ = '0.62'
 
 # Alias
 save_model = utilities.save_model
