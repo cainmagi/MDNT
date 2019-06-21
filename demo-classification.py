@@ -51,6 +51,11 @@
 #     ```
 #     python demo-classification.py -m ts -s trinst -rd model-...
 #     ```
+# Version: 1.25 # 2019/6/21
+# Comments:
+# 1. Support two-phase optimizers.
+# 2. Change the monitored measurement of ModelCheckpoint to
+#    accuracy.
 # Version: 1.23 # 2019/6/20
 # Comments:
 # 1. Enable the option for using a manual scheduling strategy.
@@ -413,7 +418,15 @@ if __name__ == '__main__':
             classifier.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
                                 loss=tf.keras.losses.categorical_crossentropy, metrics=[tf.keras.metrics.categorical_accuracy])
         else:
-            classifier.compile(optimizer=mdnt.optimizers.optimizer(args.optimizer, l_rate=args.learningRate), 
+            if args.optimizer == 'adam2sgd' or args.optimizer == 'amsgrad2sgd':
+                enable_amsgrad = args.optimizer == 'amsgrad2sgd'
+                optm = mdnt.optimizers.Adam2SGD(int(0.2*args.epoch), lr=args.learningRate, amsgrad=enable_amsgrad)
+            elif args.optimizer == 'nadam2nsgd' or args.optimizer == 'namsgrad2nsgd':
+                enable_amsgrad = args.optimizer == 'namsgrad2nsgd'
+                optm = mdnt.optimizers.Nadam2NSGD(int(0.2*args.epoch), lr=args.learningRate, amsgrad=enable_amsgrad)
+            else:
+                optm = mdnt.optimizers.optimizer(args.optimizer, l_rate=args.learningRate)
+            classifier.compile(optimizer=optm, 
                                 loss=tf.keras.losses.categorical_crossentropy, metrics=[tf.keras.metrics.categorical_accuracy])
         
         folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))
@@ -423,7 +436,7 @@ if __name__ == '__main__':
             folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))
         if tf.gfile.Exists(folder):
             tf.gfile.DeleteRecursively(folder)
-        checkpointer = mdnt.utilities.callbacks.ModelCheckpoint(filepath=os.path.join(folder, 'model'),
+        checkpointer = mdnt.utilities.callbacks.ModelCheckpoint(filepath=os.path.join(folder, 'model'), monitor='val_categorical_accuracy',
                                                                 record_format='{epoch:02d}e-val_acc_{val_categorical_accuracy:.2f}.h5',
                                                                 keep_max=5, save_best_only=True, verbose=1, period=5)
         tf.gfile.MakeDirs(folder)
