@@ -9,6 +9,14 @@
 # Basic tools for this module.
 # The default tools would be imported directly into the current
 # sub-module.
+# Version: 0.15 # 2019/6/23
+# Comments:
+#   Add support for plain momentum SGD.
+# Version: 0.12 # 2019/6/21
+# Comments:
+#   1. Support two more tensorflow based optimizers in fast
+#      interface.
+#   2. Adjust the default momentum rate of Nesterov SGD to 0.9.
 # Version: 0.10 # 2019/3/23
 # Comments:
 #   Create this submodule.
@@ -65,8 +73,10 @@ def optimizer(name='adam', l_rate=0.01, decay=0.0):
         return weight_decay_optimizers.AdamWOptimizer(weight_decay=decay, learning_rate=l_rate)
     elif name == 'nmoment':
         return optimizers.SGD(lr=l_rate, momentum=0.9, decay=decay, nesterov=True)
+    elif name == 'moment':
+        return optimizers.SGD(lr=l_rate, momentum=0.9, decay=decay, nesterov=False)
     elif name == 'sgd':
-        return optimizers.SGD(l_rate, decay=decay)
+        return optimizers.SGD(lr=l_rate, decay=decay)
     elif name == 'proximal':
         _raise_TF_warn()
         if decay != 0.0:

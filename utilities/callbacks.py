@@ -8,6 +8,9 @@
 #   tensorflow r1.13+
 # Extend loss functions. These functions could serve as both
 # losses and metrics.
+# Version: 0.16 # 2019/6/23
+# Comments:
+#   Add OptimizerSwitcher.
 # Version: 0.10 # 2019/6/13
 # Comments:
 #   Create this submodule, and finish linear_jaccard_loss
@@ -22,6 +25,46 @@ from tensorflow.python.keras import callbacks
 from tensorflow.python.platform import tf_logging as logging
 
 from . import _default
+
+class OptimizerSwitcher(Callback):
+    """Optimizer switcher
+    Need to use with MDNT optimizers that support mannual phase-switching
+    method `optimizer.switch()`. 
+    Now such optimizers include:
+        mdnt.optimizers.Adam2SGD
+        mdnt.optimizers.NAdam2NSGD
+    Arguments:
+        switch_epochs: an int or an int list which determines when to switch
+            the optimizer phase. The switch would happens on the end of 
+            assigned epochs.
+        verbose: int. 0: quiet, 1: update messages.
+    """
+
+    def __init__(self, switch_epochs, verbose=0):
+        super(OptimizerSwitcher, self).__init__()
+        if isinstance(switch_epochs, (list, tuple)):
+            if all(type(i)==int for i in switch_epochs):
+                self.switch_epochs = list(switch_epochs)
+            else:
+                raise ValueError('The input list switch_epochs should only contains int elements.')
+        else:
+            if type(switch_epochs) != int:
+                raise ValueError('The input scalar switch_epochs should be an int element.')
+            self.switch_epochs = [switch_epochs]
+        self.switch_epochs.reverse()
+        self.verbose = verbose
+
+    def on_train_begin(self, logs=None):
+        if not callable(getattr(self.model.optimizer, 'switch')):
+            raise ValueError('Optimizer must have a "switch" method to support manually switching the training phase.')
+
+    def on_epoch_end(self, epoch, logs=None):
+        if self.switch_epochs:
+            if self.switch_epochs[-1] == epoch:
+                self.model.optimizer.switch(None)
+                if self.verbose > 0:
+                    print('\nEpoch {0:05d}: Optimizer switcher switches the optimizer phase'.format(epoch + 1))
+                self.switch_epochs.pop()
 
 class ModelCheckpoint(callbacks.Callback):
     """Save the model after every epoch. (Revised)

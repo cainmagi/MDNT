@@ -51,6 +51,7 @@ Now we have such progress on the semi-product:
     - [x] Revised save and load model functions.
     - [ ] Beholder plug-in callback.
     - [x] Revised ModelCheckpoint callback.
+    - [x] OptimizerSwitcher callback (for using manually switched optimizers).
     - [ ] Extended data visualization tools.
 
 ## Demos
@@ -58,6 +59,12 @@ Now we have such progress on the semi-product:
 Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
+
+### 0.63 @ 06/23/2019
+
+1. Fix the bugs of manually switched optimizers in `.optimizers.` Now they require to be used with a callback or switch the phase by `switch()`.
+2. Add a plain momentum SGD optimizer to fast interface in `.optimizers`.
+3. Finish `OptimizerSwitcher` in `.utilities.callbacks`. It is used to control the phase of the manually swtiched optimizers.
 
 ### 0.62 @ 06/21/2019
 

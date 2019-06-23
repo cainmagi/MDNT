@@ -9,6 +9,11 @@
 # This module contains the optimizers that has multiple phases.
 # In different phases, those optimizers would adopt different
 # algorithms. A typical example is the SWATS optimizer.
+# Version: 0.15 # 2019/6/23
+# Comments:
+#   Fix the bugs in manually switched optimizers. Now it
+#   requires users to call switch() to change the phase or
+#   using mdnt.utilities.callbacks.OptimizerSwitcher.
 # Version: 0.10 # 2019/6/21
 # Comments:
 #   Create this submodule, finish Adam2SGD and Nadam2NSGD.
@@ -30,8 +35,14 @@ class Adam2SGD(optimizers.Optimizer):
     to SGD, the momentum from Adam would be retained so the optimizer could switch
     to SGD smoothly. beta_1 would also be applied to SGD for calculating the
     momentum.
+    Special tips:
+        This optimizer need to be used with
+            mdnt.utilities.callbacks.OptimizerSwitcher
+        together. That callback would trigger the method `self.switch(True)` and
+        notify the optimizer enter the SGD phase. Otherwise, it would stay in
+        the Adam/Amsgrad phase. Users could also call `self.switch` manually if 
+        using `train_on_batch()` to train the model.
     Arguments:
-        switch_epoch: int >=0. After this epoch number, switch to SGD.
         lr: float >= 0. Learning rate.
         lr_boost: float >=0. Suggest to > 1, because generally SGD optimizer
             requires a larger learning rate than Adam.
@@ -42,17 +53,19 @@ class Adam2SGD(optimizers.Optimizer):
         amsgrad: boolean. Whether to apply the AMSGrad variant of this
             algorithm from the paper "On the Convergence of Adam and
             Beyond".
+        switch_flag: the initial state of the optimizer phase. If set `False`,
+            start with Adam/Amsgrad, otherwise start with SGD.
     """
 
     def __init__(self,
-                 switch_epoch=0,
                  lr=0.001,
-                 lr_boost=5.0,
+                 lr_boost=10.0,
                  beta_1=0.9,
                  beta_2=0.999,
                  epsilon=None,
                  decay=0.,
                  amsgrad=False,
+                 switch_flag=False,
                  **kwargs):
         super(Adam2SGD, self).__init__(**kwargs)
         with K.name_scope(self.__class__.__name__):
@@ -61,13 +74,25 @@ class Adam2SGD(optimizers.Optimizer):
             self.beta_1 = K.variable(beta_1, name='beta_1')
             self.beta_2 = K.variable(beta_2, name='beta_2')
             self.decay = K.variable(decay, name='decay')
+            self.switch_flag = K.variable(switch_flag, dtype='bool', name='switch_flag')
         if epsilon is None:
             epsilon = K.epsilon()
         self.epsilon = epsilon
         self.initial_decay = decay
         self.amsgrad = amsgrad
-        self.switch_epoch = switch_epoch
         self.lr_boost = lr_boost
+
+    def switch(self, switch_flag=None):
+        '''
+        Switch the phase of the optimizer.
+        Arguments:
+            switch_flag: if set `True`, use SGD with momentum; Otherwise, use
+            Adam/Amsgrad. If set None, it would switch the phase according to
+            the current phase.
+        '''
+        if switch_flag is None:
+            switch_flag = not bool(K.get_value(self.switch_flag))
+        K.set_value(self.switch_flag, bool(switch_flag))
 
     def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
@@ -88,7 +113,6 @@ class Adam2SGD(optimizers.Optimizer):
         else:
             vhats = [K.zeros(1) for _ in params]
         self.weights = [self.iterations] + ms + vs + vhats
-        cond = gen_math_ops.greater(self.iterations, self.switch_epoch)
 
         for p, g, m, v, vhat in zip(params, grads, ms, vs, vhats):
             m_t = (self.beta_1 * m) + (1. - self.beta_1) * g
@@ -102,7 +126,7 @@ class Adam2SGD(optimizers.Optimizer):
             p_t_sgd = p - self.lr_boost * lr * m_t
 
             self.updates.append(state_ops.assign(m, m_t))
-            self.updates.append(K.switch(cond, v, state_ops.assign(v, v_t)))
+            self.updates.append(state_ops.assign(v, K.switch(self.switch_flag, v, v_t)))
             new_p_ada = p_t_ada
             new_p_sgd = p_t_sgd
 
@@ -111,19 +135,19 @@ class Adam2SGD(optimizers.Optimizer):
                 new_p_ada = p.constraint(new_p_ada)
                 new_p_sgd = p.constraint(new_p_sgd)
 
-            self.updates.append(K.switch(cond, state_ops.assign(p, new_p_sgd), state_ops.assign(p, new_p_ada)))
+            self.updates.append(state_ops.assign(p, K.switch(self.switch_flag, new_p_sgd, new_p_ada)))
         return self.updates
 
     def get_config(self):
         config = {
-            'switch_epoch': self.switch_epoch,
             'lr': float(K.get_value(self.lr)),
             'lr_boost': self.lr_boost,
             'beta_1': float(K.get_value(self.beta_1)),
             'beta_2': float(K.get_value(self.beta_2)),
             'decay': float(K.get_value(self.decay)),
             'epsilon': self.epsilon,
-            'amsgrad': self.amsgrad
+            'amsgrad': self.amsgrad,
+            'switch_flag': bool(K.get_value(self.switch_flag))
         }
         base_config = super(Adam2SGD, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
@@ -138,24 +162,34 @@ class Nadam2NSGD(optimizers.Optimizer):
     to SGD, the momentum from Adam would be retained so the optimizer could switch
     to SGD smoothly. beta_1 would also be applied to SGD for calculating the
     momentum.
+    Special tips:
+        This optimizer need to be used with
+            mdnt.utilities.callbacks.OptimizerSwitcher
+        together. That callback would trigger the method `self.switch(True)` and
+        notify the optimizer enter the NSGD phase. Otherwise, it would stay in
+        the Nadam/Namsgrad phase. Users could also call `self.switch` manually if 
+        using `train_on_batch()` to train the model.
     Arguments:
-        switch_epoch: int >=0. After this epoch number, switch to SGD.
         lr: float >= 0. Learning rate.
         lr_boost: float >=0. Suggest to > 1, because generally SGD optimizer
             requires a larger learning rate than Adam.
         beta_1/beta_2: floats, 0 < beta < 1. Generally close to 1.
         epsilon: float >= 0. Fuzz factor. If `None`, defaults to `K.epsilon()`.
+        amsgrad: boolean. Whether to apply the AMSGrad variant of this
+            algorithm from the paper "On the Convergence of Adam and Beyond".
+        switch_flag: the initial state of the optimizer phase. If set `False`,
+            start with Nadam/Namsgrad, otherwise start with NSGD.
     """
 
     def __init__(self,
-                 switch_epoch=0,
                  lr=0.002,
-                 lr_boost=5.0,
+                 lr_boost=10.0,
                  beta_1=0.9,
                  beta_2=0.999,
                  epsilon=None,
                  schedule_decay=0.004,
                  amsgrad=False,
+                 switch_flag=False,
                  **kwargs):
         super(Nadam2NSGD, self).__init__(**kwargs)
         with K.name_scope(self.__class__.__name__):
@@ -164,13 +198,25 @@ class Nadam2NSGD(optimizers.Optimizer):
             self.lr = K.variable(lr, name='lr')
             self.beta_1 = K.variable(beta_1, name='beta_1')
             self.beta_2 = K.variable(beta_2, name='beta_2')
+            self.switch_flag = K.variable(switch_flag, dtype='bool', name='switch_flag')
         if epsilon is None:
             epsilon = K.epsilon()
         self.epsilon = epsilon
         self.schedule_decay = schedule_decay
-        self.switch_epoch = switch_epoch
         self.amsgrad = amsgrad
         self.lr_boost = lr_boost
+
+    def switch(self, switch_flag=None):
+        '''
+        Switch the phase of the optimizer.
+        Arguments:
+            switch_flag: if set `True`, use SGD with nesterov momentum; Otherwise,
+            use NAdam/NAmsgrad. If set None, it would switch the phase according to
+            the current phase.
+        '''
+        if switch_flag is None:
+            switch_flag = not bool(K.get_value(self.switch_flag))
+        K.set_value(self.switch_flag, bool(switch_flag))
 
     def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
@@ -197,7 +243,6 @@ class Nadam2NSGD(optimizers.Optimizer):
             vhats = [K.zeros(1) for _ in params]
 
         self.weights = [self.iterations] + ms + vs + vhats
-        cond = gen_math_ops.greater(self.iterations, self.switch_epoch)
 
         for p, g, m, v, vhat in zip(params, grads, ms, vs, vhats):
             # the following equations given in [1]
@@ -214,7 +259,7 @@ class Nadam2NSGD(optimizers.Optimizer):
             m_t_bar = (1. - momentum_cache_t) * g_prime + momentum_cache_t_1 * m_t_prime
 
             self.updates.append(state_ops.assign(m, m_t))
-            self.updates.append(K.switch(cond, v, state_ops.assign(v, v_t)))
+            self.updates.append(state_ops.assign(K.switch(self.switch_flag, v, v_t)))
 
             p_t_ada = p - self.lr * m_t_bar / (K.sqrt(v_t_prime) + self.epsilon)
             p_t_sgd = p - self.lr_boost * self.lr * m_t_bar
@@ -227,19 +272,19 @@ class Nadam2NSGD(optimizers.Optimizer):
                 new_p_ada = p.constraint(new_p_ada)
                 new_p_sgd = p.constraint(new_p_sgd)
 
-            self.updates.append(K.switch(cond, state_ops.assign(p, new_p_sgd), state_ops.assign(p, new_p_ada)))
+            self.updates.append(state_ops.assign(p, K.switch(self.switch_flag, new_p_sgd, new_p_ada)))
         return self.updates
 
     def get_config(self):
         config = {
-            'switch_epoch': self.switch_epoch,
             'lr': float(K.get_value(self.lr)),
             'lr_boost': self.lr_boost,
             'beta_1': float(K.get_value(self.beta_1)),
             'beta_2': float(K.get_value(self.beta_2)),
             'epsilon': self.epsilon,
             'schedule_decay': self.schedule_decay,
-            'amsgrad': self.amsgrad
+            'amsgrad': self.amsgrad,
+            'switch_flag': bool(K.get_value(self.switch_flag))
         }
         base_config = super(Nadam2NSGD, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
