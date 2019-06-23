@@ -264,7 +264,7 @@ class Nadam2NSGD(optimizers.Optimizer):
             m_t_sgd_bar = (1. - momentum_cache_t) * g_prime + momentum_cache_t_1 * m_t_sgd_prime
 
             self.updates.append(state_ops.assign(m, K.switch(self.switch_flag, m_t_sgd, m_t)))
-            self.updates.append(state_ops.assign(K.switch(self.switch_flag, v, v_t)))
+            self.updates.append(state_ops.assign(v, K.switch(self.switch_flag, v, v_t)))
 
             p_t_ada = p - self.lr * m_t_bar / (K.sqrt(v_t_prime) + self.epsilon)
             p_t_sgd = p - self.lr_boost * self.lr * m_t_sgd_bar
