@@ -10,7 +10,7 @@
 # losses and metrics.
 # Version: 0.16 # 2019/6/23
 # Comments:
-#   Add OptimizerSwitcher.
+#   Add OptimizerSwitcher and fix a bug.
 # Version: 0.10 # 2019/6/13
 # Comments:
 #   Create this submodule, and finish linear_jaccard_loss
@@ -26,7 +26,7 @@ from tensorflow.python.platform import tf_logging as logging
 
 from . import _default
 
-class OptimizerSwitcher(Callback):
+class OptimizerSwitcher(callbacks.Callback):
     """Optimizer switcher
     Need to use with MDNT optimizers that support mannual phase-switching
     method `optimizer.switch()`. 
@@ -36,7 +36,7 @@ class OptimizerSwitcher(Callback):
     Arguments:
         switch_epochs: an int or an int list which determines when to switch
             the optimizer phase. The switch would happens on the end of 
-            assigned epochs.
+            assigned epochs. Should start with 1 (the first epoch).
         verbose: int. 0: quiet, 1: update messages.
     """
 
@@ -51,16 +51,22 @@ class OptimizerSwitcher(Callback):
             if type(switch_epochs) != int:
                 raise ValueError('The input scalar switch_epochs should be an int element.')
             self.switch_epochs = [switch_epochs]
-        self.switch_epochs.reverse()
+        self.switch_epochs.sort(reverse=True)
         self.verbose = verbose
 
     def on_train_begin(self, logs=None):
         if not callable(getattr(self.model.optimizer, 'switch')):
             raise ValueError('Optimizer must have a "switch" method to support manually switching the training phase.')
+        popflag = False
+        while self.switch_epochs and self.switch_epochs[-1] < 1:
+            self.switch_epochs.pop()
+            popflag = True
+        if popflag and self.verbose > 0:
+            print('The input switch_epochs is revised as {0}.'.format(self.switch_epochs))
 
     def on_epoch_end(self, epoch, logs=None):
         if self.switch_epochs:
-            if self.switch_epochs[-1] == epoch:
+            if self.switch_epochs[-1] == (epoch + 1):
                 self.model.optimizer.switch(None)
                 if self.verbose > 0:
                     print('\nEpoch {0:05d}: Optimizer switcher switches the optimizer phase'.format(epoch + 1))
