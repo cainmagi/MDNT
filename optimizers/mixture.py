@@ -11,9 +11,11 @@
 # algorithms. A typical example is the SWATS optimizer.
 # Version: 0.15 # 2019/6/23
 # Comments:
-#   Fix the bugs in manually switched optimizers. Now it
-#   requires users to call switch() to change the phase or
-#   using mdnt.utilities.callbacks.OptimizerSwitcher.
+# 1. Fix the bugs in manually switched optimizers. Now it
+#    requires users to call switch() to change the phase or
+#    using mdnt.utilities.callbacks.OptimizerSwitcher.
+# 2. Revise the manually switched optimizers to ensure that
+#    they use equivalent algorithm during the SGD phases.
 # Version: 0.10 # 2019/6/21
 # Comments:
 #   Create this submodule, finish Adam2SGD and Nadam2NSGD.
@@ -116,6 +118,7 @@ class Adam2SGD(optimizers.Optimizer):
 
         for p, g, m, v, vhat in zip(params, grads, ms, vs, vhats):
             m_t = (self.beta_1 * m) + (1. - self.beta_1) * g
+            m_t_sgd = self.beta_1 * m + g
             v_t = (self.beta_2 * v) + (1. - self.beta_2) * math_ops.square(g)
             if self.amsgrad:
                 vhat_t = math_ops.maximum(vhat, v_t)
@@ -123,19 +126,18 @@ class Adam2SGD(optimizers.Optimizer):
                 self.updates.append(state_ops.assign(vhat, vhat_t))
             else:
                 p_t_ada = p - lr_t * m_t / (K.sqrt(v_t) + self.epsilon)
-            p_t_sgd = p - self.lr_boost * lr * m_t
+            p_t_sgd = p - self.lr_boost * lr * m_t_sgd
 
-            self.updates.append(state_ops.assign(m, m_t))
+            self.updates.append(state_ops.assign(m, K.switch(self.switch_flag, m_t_sgd, m_t)))
             self.updates.append(state_ops.assign(v, K.switch(self.switch_flag, v, v_t)))
-            new_p_ada = p_t_ada
-            new_p_sgd = p_t_sgd
+            
+            new_p = K.switch(self.switch_flag, p_t_sgd, p_t_ada)
 
             # Apply constraints.
             if getattr(p, 'constraint', None) is not None:
-                new_p_ada = p.constraint(new_p_ada)
-                new_p_sgd = p.constraint(new_p_sgd)
+                new_p = p.constraint(new_p)
 
-            self.updates.append(state_ops.assign(p, K.switch(self.switch_flag, new_p_sgd, new_p_ada)))
+            self.updates.append(state_ops.assign(p, new_p))
         return self.updates
 
     def get_config(self):
@@ -248,7 +250,9 @@ class Nadam2NSGD(optimizers.Optimizer):
             # the following equations given in [1]
             g_prime = g / (1. - m_schedule_new)
             m_t = self.beta_1 * m + (1. - self.beta_1) * g
+            m_t_sgd = self.beta_1 * m + g
             m_t_prime = m_t / (1. - m_schedule_next)
+            m_t_sgd_prime = m_t_sgd / (1. - m_schedule_next)
             v_t = self.beta_2 * v + (1. - self.beta_2) * math_ops.square(g)
             if self.amsgrad:
                 vhat_t = math_ops.maximum(vhat, v_t)
@@ -257,22 +261,21 @@ class Nadam2NSGD(optimizers.Optimizer):
             else:
                 v_t_prime = v_t / (1. - math_ops.pow(self.beta_2, t))
             m_t_bar = (1. - momentum_cache_t) * g_prime + momentum_cache_t_1 * m_t_prime
+            m_t_sgd_bar = (1. - momentum_cache_t) * g_prime + momentum_cache_t_1 * m_t_sgd_prime
 
-            self.updates.append(state_ops.assign(m, m_t))
+            self.updates.append(state_ops.assign(m, K.switch(self.switch_flag, m_t_sgd, m_t)))
             self.updates.append(state_ops.assign(K.switch(self.switch_flag, v, v_t)))
 
             p_t_ada = p - self.lr * m_t_bar / (K.sqrt(v_t_prime) + self.epsilon)
-            p_t_sgd = p - self.lr_boost * self.lr * m_t_bar
+            p_t_sgd = p - self.lr_boost * self.lr * m_t_sgd_bar
             
-            new_p_ada = p_t_ada
-            new_p_sgd = p_t_sgd
+            new_p = K.switch(self.switch_flag, p_t_sgd, p_t_ada)
 
             # Apply constraints.
             if getattr(p, 'constraint', None) is not None:
-                new_p_ada = p.constraint(new_p_ada)
-                new_p_sgd = p.constraint(new_p_sgd)
+                new_p = p.constraint(new_p)
 
-            self.updates.append(state_ops.assign(p, K.switch(self.switch_flag, new_p_sgd, new_p_ada)))
+            self.updates.append(state_ops.assign(p, new_p))
         return self.updates
 
     def get_config(self):
