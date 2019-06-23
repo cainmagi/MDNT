@@ -51,6 +51,10 @@
 #     ```
 #     python demo-classification.py -m ts -s trinst -rd model-...
 #     ```
+# Version: 1.26 # 2019/6/23
+# Comments:
+#    Update the API of manually switched optimizers to fix bugs and
+#    get coherent to the newest MDNT.
 # Version: 1.25 # 2019/6/21
 # Comments:
 # 1. Support two-phase optimizers.
@@ -420,10 +424,10 @@ if __name__ == '__main__':
         else:
             if args.optimizer == 'adam2sgd' or args.optimizer == 'amsgrad2sgd':
                 enable_amsgrad = args.optimizer == 'amsgrad2sgd'
-                optm = mdnt.optimizers.Adam2SGD(int(0.2*args.epoch), lr=args.learningRate, amsgrad=enable_amsgrad)
+                optm = mdnt.optimizers.Adam2SGD(lr=args.learningRate, amsgrad=enable_amsgrad)
             elif args.optimizer == 'nadam2nsgd' or args.optimizer == 'namsgrad2nsgd':
                 enable_amsgrad = args.optimizer == 'namsgrad2nsgd'
-                optm = mdnt.optimizers.Nadam2NSGD(int(0.2*args.epoch), lr=args.learningRate, amsgrad=enable_amsgrad)
+                optm = mdnt.optimizers.Nadam2NSGD(lr=args.learningRate, amsgrad=enable_amsgrad)
             else:
                 optm = mdnt.optimizers.optimizer(args.optimizer, l_rate=args.learningRate)
             classifier.compile(optimizer=optm, 
@@ -450,6 +454,9 @@ if __name__ == '__main__':
             get_callbacks = [checkpointer, logger, schedule_lr]
         else:
             get_callbacks = [checkpointer, logger]
+        if args.optimizer in ('adam2sgd', 'amsgrad2sgd', 'nadam2nsgd', 'namsgrad2nsgd'):
+            optmSwitcher = mdnt.utilities.callbacks.OptimizerSwitcher(int(0.2*args.epoch), verbose=1)
+            get_callbacks.append(optmSwitcher)
 
         datagen = tf.keras.preprocessing.image.ImageDataGenerator(
             featurewise_center=False,  # set input mean to 0 over the dataset

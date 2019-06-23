@@ -53,6 +53,10 @@ The following demos are working for denoising with MNIST data set.
 
 ## Update records
 
+### @ 06/23/2019
+
+1. Update the API of manually switched optimizers to fix bugs and get coherent to the newest MDNT for `demo-classification`.
+
 ### @ 06/21/2019
 
 1. Support two-phase optimizers and Change the monitored measurement of ModelCheckpoint to accuracy for `demo-classification`.
