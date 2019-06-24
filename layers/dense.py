@@ -9,7 +9,8 @@
 # Extend the dense layer API with tied version.
 # Version: 0.15 # 2019/6/24
 # Comments:
-#   Add the Ghost layer for implementing trainable input layer.
+# 1. Add the Ghost layer for implementing trainable input layer.
+# 2. Fix a small bug for Ghost.
 # Version: 0.11 # 2019/3/27
 # Comments:
 #   Add compatible support.
@@ -49,10 +50,10 @@ class Ghost(Layer):
     where both kernel and bias share the same shape of input tensor.
     There are two ways to build a tunable input layer. The first way is using
     kernel solely:
-        input = Input(tensor=tf.constant(1.0, shape=shape))
+        input = Input(shape=shape) # feeding constant 1.0
         tunable_input = Ghost(use_kernel=True)(input) = kernel * 1.0 = kernel
     The second way is using bias solely:
-        input = Input(tensor=tf.constant(0.0, shape=shape))
+        input = Input(shape=shape) # feeding constant 0.0
         tunable_input = Ghost(use_bias=True)(input) = bias + 0.0 = bias
     Because both kernel and bias are trainable, such a technique enables tf-Keras
     users to create a tunable input layer easily.
@@ -118,7 +119,7 @@ class Ghost(Layer):
     def call(self, inputs):
         inputs = ops.convert_to_tensor(inputs)
         input_shape = K.int_shape(inputs)
-        broadcast_shape = [1] + input_shape[1:]
+        broadcast_shape = [1] + list(input_shape[1:])
         broadcast_var = K.reshape(self.get_var, broadcast_shape)
         if self.use_kernel:
             return broadcast_var * inputs

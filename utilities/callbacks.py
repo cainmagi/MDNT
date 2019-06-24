@@ -10,7 +10,8 @@
 # losses and metrics.
 # Version: 0.18 # 2019/6/24
 # Comments:
-#   Finish ModelWeightsReducer.
+# 1. Finish ModelWeightsReducer.
+# 2. Fix bugs for ModelWeightsReducer. 
 # Version: 0.16 # 2019/6/23
 # Comments:
 #   Add OptimizerSwitcher and fix a bug.
@@ -57,8 +58,9 @@ class ModelWeightsReducer(callbacks.Callback):
             It only take effects when > 0.0.
     """
     def __init__(self, lam=0.0, mu=0.0):
-        self.get_lambda = lam
-        self.get_mu = mu
+        with K.name_scope(self.__class__.__name__):
+            self.get_lambda = K.variable(lam, name='lambda')
+            self.get_mu = K.variable(mu, name='mu')
         self.bool_l1 = lam > 0.0
         self.bool_l2 = mu > 0.0
         self.session = None
@@ -83,15 +85,18 @@ class ModelWeightsReducer(callbacks.Callback):
         if not get_w_dec_list:
             raise ValueError('The trainable weights of the model do not include any kernel.')
         # Define the update ops
-        self.w_updates = []
-        for w in get_w_dec_list:
-            w_l = w
-            if self.bool_l2:
-                w_l = self.get_mu * w_l
-            if self.bool_l1:
-                w_abs = math_ops.abs(w_l) - self.get_lambda
-                w_l = gen_math_ops.sign(w_l) * math_ops.cast(gen_math_ops.greater(w_abs), dtype=w_l.dtype) * w_abs
-            self.w_updates.append(state_ops.assign(w, w_l))
+        getlr = self.model.optimizer.lr
+        with K.name_scope(self.__class__.__name__):
+            self.w_updates = []
+            self.w_updates_aft = []
+            for w in get_w_dec_list:
+                w_l = w
+                if self.bool_l2:
+                    w_l = (1 - getlr * self.get_mu) * w_l
+                if self.bool_l1:
+                    w_abs = math_ops.abs(w_l) - self.get_lambda * getlr
+                    w_l = gen_math_ops.sign(w_l) * math_ops.cast(gen_math_ops.greater(w_abs, 0), dtype=w_l.dtype) * w_abs
+                self.w_updates.append(state_ops.assign(w, w_l))
         # Get and store the session
         self.session = K.get_session()
 

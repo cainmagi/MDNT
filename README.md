@@ -65,6 +65,7 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 1. Finish `ModelWeightsReducer` in `.utilities.callbacks`.
 2. Finish `Ghost` in `.layers`.
+3. Fix small bugs.
 
 ### 0.63 @ 06/23/2019
 

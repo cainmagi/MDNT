@@ -18,6 +18,7 @@
 # Comments:
 #   1. Finish ModelWeightsReducer in .utilities.callbacks.
 #   2. Finish Ghost in .layers.
+#   3. Fix small bugs.
 # Version 0.63 # 2019/6/23
 # Comments:
 #   1. Fix the bugs of manually switched optimizers in 
