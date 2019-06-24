@@ -65,6 +65,7 @@ Check the branch [`demos`][brch-demos] to learn more details.
 1. Fix the bugs of manually switched optimizers in `.optimizers.` Now they require to be used with a callback or switch the phase by `switch()`.
 2. Add a plain momentum SGD optimizer to fast interface in `.optimizers`.
 3. Finish `OptimizerSwitcher` in `.utilities.callbacks`. It is used to control the phase of the manually swtiched optimizers.
+4. Improve the efficiency for `Adam2SGD` and `NAdam2NSGD` in `.optimizers`.
 
 ### 0.62 @ 06/21/2019
 

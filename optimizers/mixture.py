@@ -9,6 +9,9 @@
 # This module contains the optimizers that has multiple phases.
 # In different phases, those optimizers would adopt different
 # algorithms. A typical example is the SWATS optimizer.
+# Version: 0.17 # 2019/6/23
+# Comments:
+#    Improve the efficiency of Adam2SGD and Nadam2NSGD.
 # Version: 0.15 # 2019/6/23
 # Comments:
 # 1. Fix the bugs in manually switched optimizers. Now it
@@ -29,6 +32,14 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import gen_math_ops
+
+def m_switch(pred, tensor_a, tensor_b):
+    '''
+    Use cleaner API to replace m_switch to accelerate computation.
+    '''
+    def f_true(): return tensor_a
+    def f_false(): return tensor_b
+    return control_flow_ops.cond(pred, tensor_a, tensor_b, strict=True)
 
 class Adam2SGD(optimizers.Optimizer):
     """Adam optimizer -> SGD optimizer.
@@ -74,6 +85,10 @@ class Adam2SGD(optimizers.Optimizer):
             self.iterations = K.variable(0, dtype='int64', name='iterations')
             self.lr = K.variable(lr, name='lr')
             self.beta_1 = K.variable(beta_1, name='beta_1')
+            if switch_flag: # using SGD
+                self.beta_g = K.variable(1.0, name='beta_g')
+            else: # using Adam
+                self.beta_g = K.variable(1.0 - beta_1, name='beta_g')
             self.beta_2 = K.variable(beta_2, name='beta_2')
             self.decay = K.variable(decay, name='decay')
             self.switch_flag = K.variable(switch_flag, dtype='bool', name='switch_flag')
@@ -94,6 +109,12 @@ class Adam2SGD(optimizers.Optimizer):
         '''
         if switch_flag is None:
             switch_flag = not bool(K.get_value(self.switch_flag))
+        else:
+            switch_flag = bool(switch_flag)
+        if switch_flag: # using SGD
+            self.beta_g = K.set_value(self.beta_g, 1.0)
+        else: # using Adam
+            self.beta_g = K.set_value(self.beta_g, 1.0 - K.get_value(self.beta_1))
         K.set_value(self.switch_flag, bool(switch_flag))
 
     def get_updates(self, loss, params):
@@ -117,21 +138,20 @@ class Adam2SGD(optimizers.Optimizer):
         self.weights = [self.iterations] + ms + vs + vhats
 
         for p, g, m, v, vhat in zip(params, grads, ms, vs, vhats):
-            m_t = (self.beta_1 * m) + (1. - self.beta_1) * g
-            m_t_sgd = self.beta_1 * m + g
-            v_t = (self.beta_2 * v) + (1. - self.beta_2) * math_ops.square(g)
+            m_t = (self.beta_1 * m) + self.beta_g * g
+            v_t = m_switch(self.switch_flag, v, (self.beta_2 * v) + (1. - self.beta_2) * math_ops.square(g))
             if self.amsgrad:
-                vhat_t = math_ops.maximum(vhat, v_t)
-                p_t_ada = p - lr_t * m_t / (K.sqrt(vhat_t) + self.epsilon)
+                vhat_t = m_switch(self.switch_flag, v, math_ops.maximum(vhat, v_t))
+                p_t_ada = m_switch(self.switch_flag, p, p - lr_t * m_t / (K.sqrt(vhat_t) + self.epsilon))
                 self.updates.append(state_ops.assign(vhat, vhat_t))
             else:
-                p_t_ada = p - lr_t * m_t / (K.sqrt(v_t) + self.epsilon)
-            p_t_sgd = p - self.lr_boost * lr * m_t_sgd
+                p_t_ada = m_switch(self.switch_flag, p, p - lr_t * m_t / (K.sqrt(v_t) + self.epsilon))
+            p_t_sgd = m_switch(self.switch_flag, p - self.lr_boost * lr * m_t, p)
 
-            self.updates.append(state_ops.assign(m, K.switch(self.switch_flag, m_t_sgd, m_t)))
-            self.updates.append(state_ops.assign(v, K.switch(self.switch_flag, v, v_t)))
+            self.updates.append(state_ops.assign(m, m_t))
+            self.updates.append(state_ops.assign(v, m_switch(self.switch_flag, v, v_t)))
             
-            new_p = K.switch(self.switch_flag, p_t_sgd, p_t_ada)
+            new_p = m_switch(self.switch_flag, p_t_sgd, p_t_ada)
 
             # Apply constraints.
             if getattr(p, 'constraint', None) is not None:
@@ -177,6 +197,7 @@ class Nadam2NSGD(optimizers.Optimizer):
             requires a larger learning rate than Adam.
         beta_1/beta_2: floats, 0 < beta < 1. Generally close to 1.
         epsilon: float >= 0. Fuzz factor. If `None`, defaults to `K.epsilon()`.
+        decay: float >= 0. Learning rate decay over each update.
         amsgrad: boolean. Whether to apply the AMSGrad variant of this
             algorithm from the paper "On the Convergence of Adam and Beyond".
         switch_flag: the initial state of the optimizer phase. If set `False`,
@@ -189,6 +210,7 @@ class Nadam2NSGD(optimizers.Optimizer):
                  beta_1=0.9,
                  beta_2=0.999,
                  epsilon=None,
+                 decay=0.,
                  schedule_decay=0.004,
                  amsgrad=False,
                  switch_flag=False,
@@ -199,11 +221,17 @@ class Nadam2NSGD(optimizers.Optimizer):
             self.m_schedule = K.variable(1., name='m_schedule')
             self.lr = K.variable(lr, name='lr')
             self.beta_1 = K.variable(beta_1, name='beta_1')
+            if switch_flag: # using NSGD
+                self.beta_g = K.variable(1.0, name='beta_g')
+            else: # using Nadam
+                self.beta_g = K.variable(1.0 - beta_1, name='beta_g')
             self.beta_2 = K.variable(beta_2, name='beta_2')
+            self.decay = K.variable(decay, name='decay')
             self.switch_flag = K.variable(switch_flag, dtype='bool', name='switch_flag')
         if epsilon is None:
             epsilon = K.epsilon()
         self.epsilon = epsilon
+        self.initial_decay = decay
         self.schedule_decay = schedule_decay
         self.amsgrad = amsgrad
         self.lr_boost = lr_boost
@@ -218,11 +246,21 @@ class Nadam2NSGD(optimizers.Optimizer):
         '''
         if switch_flag is None:
             switch_flag = not bool(K.get_value(self.switch_flag))
+        else:
+            switch_flag = bool(switch_flag)
+        if switch_flag: # using NSGD
+            self.beta_g = K.set_value(self.beta_g, 1.0)
+        else: # using Nadam
+            self.beta_g = K.set_value(self.beta_g, 1.0 - K.get_value(self.beta_1))
         K.set_value(self.switch_flag, bool(switch_flag))
 
     def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
         self.updates = [state_ops.assign_add(self.iterations, 1)]
+
+        lr = self.lr
+        if self.initial_decay > 0:
+            lr = lr * ( 1. / (1. + self.decay * math_ops.cast(self.iterations,K.dtype(self.decay))) )
 
         t = math_ops.cast(self.iterations, K.floatx()) + 1
 
@@ -249,27 +287,24 @@ class Nadam2NSGD(optimizers.Optimizer):
         for p, g, m, v, vhat in zip(params, grads, ms, vs, vhats):
             # the following equations given in [1]
             g_prime = g / (1. - m_schedule_new)
-            m_t = self.beta_1 * m + (1. - self.beta_1) * g
-            m_t_sgd = self.beta_1 * m + g
+            m_t = self.beta_1 * m + self.beta_g * g
             m_t_prime = m_t / (1. - m_schedule_next)
-            m_t_sgd_prime = m_t_sgd / (1. - m_schedule_next)
-            v_t = self.beta_2 * v + (1. - self.beta_2) * math_ops.square(g)
+            v_t = m_switch(self.switch_flag, v, self.beta_2 * v + (1. - self.beta_2) * math_ops.square(g))
             if self.amsgrad:
-                vhat_t = math_ops.maximum(vhat, v_t)
+                vhat_t = m_switch(self.switch_flag, v, math_ops.maximum(vhat, v_t))
                 self.updates.append(state_ops.assign(vhat, vhat_t))
-                v_t_prime = vhat_t / (1. - math_ops.pow(self.beta_2, t))
+                v_t_prime = m_switch(self.switch_flag, v, vhat_t / (1. - math_ops.pow(self.beta_2, t)))
             else:
-                v_t_prime = v_t / (1. - math_ops.pow(self.beta_2, t))
+                v_t_prime = m_switch(self.switch_flag, v, v_t / (1. - math_ops.pow(self.beta_2, t)))
             m_t_bar = (1. - momentum_cache_t) * g_prime + momentum_cache_t_1 * m_t_prime
-            m_t_sgd_bar = (1. - momentum_cache_t) * g_prime + momentum_cache_t_1 * m_t_sgd_prime
 
-            self.updates.append(state_ops.assign(m, K.switch(self.switch_flag, m_t_sgd, m_t)))
-            self.updates.append(state_ops.assign(v, K.switch(self.switch_flag, v, v_t)))
+            self.updates.append(state_ops.assign(m, m_t))
+            self.updates.append(state_ops.assign(v, m_switch(self.switch_flag, v, v_t)))
 
-            p_t_ada = p - self.lr * m_t_bar / (K.sqrt(v_t_prime) + self.epsilon)
-            p_t_sgd = p - self.lr_boost * self.lr * m_t_sgd_bar
+            p_t_ada = m_switch(self.switch_flag, p, p - lr * m_t_bar / (K.sqrt(v_t_prime) + self.epsilon))
+            p_t_sgd = m_switch(self.switch_flag, p - self.lr_boost * lr * m_t_bar, p)
             
-            new_p = K.switch(self.switch_flag, p_t_sgd, p_t_ada)
+            new_p = m_switch(self.switch_flag, p_t_sgd, p_t_ada)
 
             # Apply constraints.
             if getattr(p, 'constraint', None) is not None:
@@ -285,6 +320,7 @@ class Nadam2NSGD(optimizers.Optimizer):
             'beta_1': float(K.get_value(self.beta_1)),
             'beta_2': float(K.get_value(self.beta_2)),
             'epsilon': self.epsilon,
+            'decay': float(K.get_value(self.decay)),
             'schedule_decay': self.schedule_decay,
             'amsgrad': self.amsgrad,
             'switch_flag': bool(K.get_value(self.switch_flag))

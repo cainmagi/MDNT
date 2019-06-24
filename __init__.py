@@ -24,6 +24,8 @@
 #   3. Finish OptimizerSwitcher in .utilities.callbacks. It
 #      is used to control the phase of the manually swtiched
 #      optimizers.
+#   4. Improve the efficiency for Adam2SGD and NAdam2NSGD in
+#      .optimizers.
 # Version 0.62 # 2019/6/21
 # Comments:
 #   1. Finish the manually switched optimizers in .optimizers:
