@@ -46,12 +46,17 @@ The following demos are working for denoising with MNIST data set.
 * `demo-classification`: Deep network for classification task. This script includes the tests for residual, ResNeXt, inception, inception-residual and inception-plus blocks.
 * `demo-denoising`: Autoencoder for denoising task. This script includes the tests for residual, ResNeXt, inception, inception-residual and inception-plus blocks.
 * `demo-external-1`: External layer test 1. We use numpy-api to convert Cartesian coordinates to polar coordinates.
+* `demo-weightDecay`: Weight decay callback on momentum SGD and Ghost layer.
 * `demo-saveH5`: Save `.h5` file.
 * `demo-readH5`: Read `.h5` file.
 * `demo-readH5Multi`: Read two `.h5` files and combine them as a data set.
 * `demo-dataSet`: Use H5 IO to train and test a network.
 
 ## Update records
+
+### @ 06/24/2019
+
+1. Update the test (`demo-weightDecay`) for Ghost (`Ghost`) layers and weight decay callback (`ModelWeightsReducer`).
 
 ### @ 06/23/2019
 
