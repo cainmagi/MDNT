@@ -14,6 +14,9 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version 0.64 # 2019/6/24
+# Comments:
+#   Finish ModelWeightsReducer in .utilities.callbacks.
 # Version 0.63 # 2019/6/23
 # Comments:
 #   1. Fix the bugs of manually switched optimizers in 
@@ -167,7 +170,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.63'
+__version__ = '0.64'
 
 # Alias
 save_model = utilities.save_model

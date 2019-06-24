@@ -8,6 +8,9 @@
 #   tensorflow r1.13+
 # Extend loss functions. These functions could serve as both
 # losses and metrics.
+# Version: 0.18 # 2019/6/24
+# Comments:
+#   Finish ModelWeightsReducer.
 # Version: 0.16 # 2019/6/23
 # Comments:
 #   Add OptimizerSwitcher and fix a bug.
@@ -22,9 +25,82 @@ from datetime import datetime
 import os
 import numpy as np
 from tensorflow.python.keras import callbacks
+from tensorflow.python.keras import backend as K
 from tensorflow.python.platform import tf_logging as logging
+from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import state_ops
+from tensorflow.python.ops import gen_math_ops
 
 from . import _default
+
+class ModelWeightsReducer(callbacks.Callback):
+    """Model weights reducer
+    Insert a weight decay operation before each iteration during the training.
+    When it is applied to pure SGD, this callback is equivalent to adding
+    L1/L2 regularization to each kernel.
+    However, the optimizer with momentum or adaptive learning rate would make
+    the regularization terms not equivalent to weight decay. As an alternative,
+    Tensorflow provides AdamW (weight decayed Adam) in contribution module.
+    This callback serves as an alternative for using weight decayed optimizers.
+    For example, using ModelWeightsReducer(mu=0.1) + Adam is equivalent to
+    using AdamW(weight_decay=0.1).
+    This callback provides both soft threshold method and weight decay method,
+    which are used for maintained the sparsity and small module length respec-
+    tively.
+    Arguments:
+        lam: proximal coefficient. It is used to apply soft thresholding and
+            maintain the sparsity of all kernels.
+            It only take effects when > 0.0.
+        mu: Tikhonov coefficient. It is used to apply the weight decay method
+            and maintain the reduced length of the weight module.
+            It only take effects when > 0.0.
+    """
+    def __init__(self, lam=0.0, mu=0.0):
+        self.get_lambda = lam
+        self.get_mu = mu
+        self.bool_l1 = lam > 0.0
+        self.bool_l2 = mu > 0.0
+        self.session = None
+        if not (self.bool_l1 or self.bool_l2):
+            raise ValueError('Need to specify either one of "lam" and "mu".')
+    
+    def on_train_begin(self, logs=None):
+        # First collect all trainable weights
+        self.model._check_trainable_weights_consistency()
+        get_w_list = self.model.trainable_weights
+        get_w_dec_list = []
+        # Filter all weights and select those named 'kernel'
+        for w in get_w_list:
+            getname = w.name
+            pos = getname.rfind('/')
+            if pos != -1:
+                checked = 'kernel' in getname[pos+1:]
+            else:
+                checked = 'kernel' in getname
+            if checked:
+                get_w_dec_list.append(w)
+        if not get_w_dec_list:
+            raise ValueError('The trainable weights of the model do not include any kernel.')
+        # Define the update ops
+        self.w_updates = []
+        for w in get_w_dec_list:
+            w_l = w
+            if self.bool_l2:
+                w_l = self.get_mu * w_l
+            if self.bool_l1:
+                w_abs = math_ops.abs(w_l) - self.get_lambda
+                w_l = gen_math_ops.sign(w_l) * math_ops.cast(gen_math_ops.greater(w_abs), dtype=w_l.dtype) * w_abs
+            self.w_updates.append(state_ops.assign(w, w_l))
+        # Get and store the session
+        self.session = K.get_session()
+
+    def on_train_end(self, logs=None):
+        self.session = None
+
+    def on_train_batch_begin(self, batch, logs=None):
+        # Define the updating function
+        self.session.run(fetches=self.w_updates)
 
 class OptimizerSwitcher(callbacks.Callback):
     """Optimizer switcher
@@ -64,8 +140,8 @@ class OptimizerSwitcher(callbacks.Callback):
         if popflag and self.verbose > 0:
             print('The input switch_epochs is revised as {0}.'.format(self.switch_epochs))
 
-    def on_epoch_end(self, epoch, logs=None):
-        if self.switch_epochs:
+    def on_epoch_end(self, epoch, logs=None, mode='train'):
+        if mode == 'train' and self.switch_epochs:
             if self.switch_epochs[-1] == (epoch + 1):
                 self.model.optimizer.switch(None)
                 if self.verbose > 0:

@@ -60,6 +60,10 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.64 @ 06/24/2019
+
+Finish `ModelWeightsReducer` in `.utilities.callbacks`.
+
 ### 0.63 @ 06/23/2019
 
 1. Fix the bugs of manually switched optimizers in `.optimizers.` Now they require to be used with a callback or switch the phase by `switch()`.
