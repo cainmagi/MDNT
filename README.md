@@ -13,7 +13,6 @@ Now we have such progress on the semi-product:
 - [ ] optimzers:
     - [x] Manually switched optimizers (`Adam2SGD` and `NAdam2NSGD`).
     - [ ] Advanced adaptive optimizers (`NAdam` supporting `amsgrad` and `Nadabound`).
-    - [ ] Parameter decay strategy (L1 decay and L2 decay).
     - [x] Wrapped default optimizers.
 - [x] layers:
     - [x] Ghost layer (used to construct trainable input layer).
@@ -53,6 +52,7 @@ Now we have such progress on the semi-product:
     - [ ] Beholder plug-in callback.
     - [x] Revised ModelCheckpoint callback.
     - [x] OptimizerSwitcher callback (for using manually switched optimizers).
+    - [x] ModelWeightsReducer callback (parameter decay strategy including L1 decay and L2 decay).
     - [ ] Extended data visualization tools.
 
 ## Demos
