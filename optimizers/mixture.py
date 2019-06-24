@@ -39,7 +39,7 @@ def m_switch(pred, tensor_a, tensor_b):
     '''
     def f_true(): return tensor_a
     def f_false(): return tensor_b
-    return control_flow_ops.cond(pred, tensor_a, tensor_b, strict=True)
+    return control_flow_ops.cond(pred, f_true, f_false, strict=True)
 
 class Adam2SGD(optimizers.Optimizer):
     """Adam optimizer -> SGD optimizer.
