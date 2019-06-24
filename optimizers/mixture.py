@@ -139,17 +139,17 @@ class Adam2SGD(optimizers.Optimizer):
 
         for p, g, m, v, vhat in zip(params, grads, ms, vs, vhats):
             m_t = (self.beta_1 * m) + self.beta_g * g
-            v_t = m_switch(self.switch_flag, v, (self.beta_2 * v) + (1. - self.beta_2) * math_ops.square(g))
+            v_t = (self.beta_2 * v) + (1. - self.beta_2) * math_ops.square(g)
             if self.amsgrad:
-                vhat_t = m_switch(self.switch_flag, v, math_ops.maximum(vhat, v_t))
-                p_t_ada = m_switch(self.switch_flag, p, p - lr_t * m_t / (K.sqrt(vhat_t) + self.epsilon))
+                vhat_t = math_ops.maximum(vhat, v_t)
+                p_t_ada = p - lr_t * m_t / (K.sqrt(vhat_t) + self.epsilon)
                 self.updates.append(state_ops.assign(vhat, vhat_t))
             else:
-                p_t_ada = m_switch(self.switch_flag, p, p - lr_t * m_t / (K.sqrt(v_t) + self.epsilon))
-            p_t_sgd = m_switch(self.switch_flag, p - self.lr_boost * lr * m_t, p)
+                p_t_ada = p - lr_t * m_t / (K.sqrt(v_t) + self.epsilon)
+            p_t_sgd = p - self.lr_boost * lr * m_t
 
             self.updates.append(state_ops.assign(m, m_t))
-            self.updates.append(state_ops.assign(v, m_switch(self.switch_flag, v, v_t)))
+            self.updates.append(state_ops.assign(v, v_t))
             
             new_p = m_switch(self.switch_flag, p_t_sgd, p_t_ada)
 
@@ -289,20 +289,20 @@ class Nadam2NSGD(optimizers.Optimizer):
             g_prime = g / (1. - m_schedule_new)
             m_t = self.beta_1 * m + self.beta_g * g
             m_t_prime = m_t / (1. - m_schedule_next)
-            v_t = m_switch(self.switch_flag, v, self.beta_2 * v + (1. - self.beta_2) * math_ops.square(g))
+            v_t = self.beta_2 * v + (1. - self.beta_2) * math_ops.square(g)
             if self.amsgrad:
-                vhat_t = m_switch(self.switch_flag, v, math_ops.maximum(vhat, v_t))
+                vhat_t = math_ops.maximum(vhat, v_t)
                 self.updates.append(state_ops.assign(vhat, vhat_t))
-                v_t_prime = m_switch(self.switch_flag, v, vhat_t / (1. - math_ops.pow(self.beta_2, t)))
+                v_t_prime = vhat_t / (1. - math_ops.pow(self.beta_2, t))
             else:
-                v_t_prime = m_switch(self.switch_flag, v, v_t / (1. - math_ops.pow(self.beta_2, t)))
+                v_t_prime = v_t / (1. - math_ops.pow(self.beta_2, t))
             m_t_bar = (1. - momentum_cache_t) * g_prime + momentum_cache_t_1 * m_t_prime
 
             self.updates.append(state_ops.assign(m, m_t))
-            self.updates.append(state_ops.assign(v, m_switch(self.switch_flag, v, v_t)))
+            self.updates.append(state_ops.assign(v, v_t))
 
-            p_t_ada = m_switch(self.switch_flag, p, p - lr * m_t_bar / (K.sqrt(v_t_prime) + self.epsilon))
-            p_t_sgd = m_switch(self.switch_flag, p - self.lr_boost * lr * m_t_bar, p)
+            p_t_ada = p - lr * m_t_bar / (K.sqrt(v_t_prime) + self.epsilon)
+            p_t_sgd = p - self.lr_boost * lr * m_t_bar
             
             new_p = m_switch(self.switch_flag, p_t_sgd, p_t_ada)
 
