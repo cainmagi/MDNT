@@ -16,7 +16,8 @@
 # plain tensorflow-keras.
 # Version 0.64 # 2019/6/24
 # Comments:
-#   Finish ModelWeightsReducer in .utilities.callbacks.
+#   1. Finish ModelWeightsReducer in .utilities.callbacks.
+#   2. Finish Ghost in .layers.
 # Version 0.63 # 2019/6/23
 # Comments:
 #   1. Fix the bugs of manually switched optimizers in 

@@ -7,6 +7,9 @@
 #   python 3.6+
 #   tensorflow r1.13+
 # Extend the dense layer API with tied version.
+# Version: 0.15 # 2019/6/24
+# Comments:
+#   Add the Ghost layer for implementing trainable input layer.
 # Version: 0.11 # 2019/3/27
 # Comments:
 #   Add compatible support.
@@ -36,6 +39,105 @@ if compat.COMPATIBLE_MODE:
     from tensorflow.python.keras.engine.base_layer import InputSpec
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec
+
+class Ghost(Layer):
+    """Ghost layer for setting tunable input
+    Since tf-Keras does not support users to build a trainable input layer, we use
+    an interesting trick, i.e. "Ghost" to realize the trainable input. Our Ghost
+    layer is implemented like this:
+        ouput = kernel * input + bias
+    where both kernel and bias share the same shape of input tensor.
+    There are two ways to build a tunable input layer. The first way is using
+    kernel solely:
+        input = Input(tensor=tf.constant(1.0, shape=shape))
+        tunable_input = Ghost(use_kernel=True)(input) = kernel * 1.0 = kernel
+    The second way is using bias solely:
+        input = Input(tensor=tf.constant(0.0, shape=shape))
+        tunable_input = Ghost(use_bias=True)(input) = bias + 0.0 = bias
+    Because both kernel and bias are trainable, such a technique enables tf-Keras
+    users to create a tunable input layer easily.
+    It is not allowed to use kernel and bias in the same time, because in this
+    case the solution for Ghost layer would become ill-posed.
+    Arguments:
+        use_kernel: Boolean, whether the layer uses multiplicative strategy to
+            define the variable.
+        use_bias: Boolean, whether the layer uses additive strategy to define
+            the variable.
+        var_initializer: Initializer for the tunable variable. The variable
+            depends on setting use_kernel or setting use_bias.
+        var_regularizer: Regularizer function applied to the tunable variable.
+        var_constraint: Constraint function applied to the tunable variable.
+    Input shape:
+        Any shape. The shape should be totally known except the batch number.
+    Output shape:
+        The same as input shape.
+    """
+    def __init__(self,
+                 use_kernel=False,
+                 use_bias=False,
+                 var_initializer='glorot_uniform',
+                 var_regularizer=None,
+                 var_constraint=None,
+                 **kwargs):
+        if 'input_shape' not in kwargs and 'input_dim' in kwargs:
+          kwargs['input_shape'] = (kwargs.pop('input_dim'),)
+
+        super(Ghost, self).__init__(
+            activity_regularizer=None, **kwargs)
+        if not (use_kernel or use_bias):
+            raise ValueError('Need to specify either "use_kernel" or "use_bias".')
+        if use_kernel and use_bias:
+            raise ValueError('Should not specify "use_kernel" and "use_bias" in the same time.')
+        self.use_kernel = use_kernel
+        self.use_bias = use_bias
+        self.var_initializer = initializers.get(var_initializer)
+        self.var_regularizer = regularizers.get(var_regularizer)
+        self.var_constraint = constraints.get(var_constraint)
+        self.supports_masking = True
+
+    def build(self, input_shape):
+        input_shape = tensor_shape.TensorShape(input_shape)
+        for i in range(1, len(input_shape)):
+            if tensor_shape.dimension_value(input_shape[i]) is None:
+                raise ValueError('The input shape [1:] should be defined, but found element `None`.')
+        if self.use_kernel:
+            varName = 'kernel'
+        elif self.use_bias:
+            varName = 'bias'
+        get_in = input_shape.as_list()[1:]
+        self.get_var = self.add_weight(
+            varName,
+            shape=get_in,
+            initializer=self.var_initializer,
+            regularizer=self.var_regularizer,
+            constraint=self.var_constraint,
+            dtype=self.dtype,
+            trainable=True)
+        super(Ghost, self).build(input_shape)
+
+    def call(self, inputs):
+        inputs = ops.convert_to_tensor(inputs)
+        input_shape = K.int_shape(inputs)
+        broadcast_shape = [1] + input_shape[1:]
+        broadcast_var = K.reshape(self.get_var, broadcast_shape)
+        if self.use_kernel:
+            return broadcast_var * inputs
+        elif self.use_bias:
+            return broadcast_var + inputs
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        config = {
+            'use_kernel': self.use_kernel,
+            'use_bias': self.use_bias,
+            'var_initializer': initializers.serialize(self.var_initializer),
+            'var_regularizer': regularizers.serialize(self.var_regularizer),
+            'var_constraint': regularizers.serialize(self.var_constraint)
+        }
+        base_config = super(Ghost, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
 
 class DenseTied(Layer):
     """Tied densely-connected NN layer.
@@ -71,7 +173,6 @@ class DenseTied(Layer):
             `(batch_size, input_dim_of_tied_layer)`,
         the output would have shape `(batch_size, input_dim_of_tied_layer)`.
     """
-
     def __init__(self,
                  tied_layer='',
                  activation=None,

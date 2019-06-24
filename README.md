@@ -16,6 +16,7 @@ Now we have such progress on the semi-product:
     - [ ] Parameter decay strategy (L1 decay and L2 decay).
     - [x] Wrapped default optimizers.
 - [x] layers:
+    - [x] Ghost layer (used to construct trainable input layer).
     - [x] Tied dense layer for the symmetric autoencoder.
     - [x] Extended dropout and noise layers.
     - [x] Extened normalization layers.
@@ -62,7 +63,8 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ### 0.64 @ 06/24/2019
 
-Finish `ModelWeightsReducer` in `.utilities.callbacks`.
+1. Finish `ModelWeightsReducer` in `.utilities.callbacks`.
+2. Finish `Ghost` in `.layers`.
 
 ### 0.63 @ 06/23/2019
 
