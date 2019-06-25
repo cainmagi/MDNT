@@ -12,6 +12,8 @@
 # Comments:
 # 1. Finish ModelWeightsReducer.
 # 2. Fix bugs for ModelWeightsReducer. 
+# 3. Find a better way for implementing the soft thresholding
+#    for ModelWeightsReducer.
 # Version: 0.16 # 2019/6/23
 # Comments:
 #   Add OptimizerSwitcher and fix a bug.
@@ -30,6 +32,7 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import random_ops
 from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import gen_math_ops
 
@@ -48,7 +51,8 @@ class ModelWeightsReducer(callbacks.Callback):
     using AdamW(weight_decay=0.1).
     This callback provides both soft threshold method and weight decay method,
     which are used for maintained the sparsity and small module length respec-
-    tively.
+    tively. Compared to adding regularization terms, this callback does not
+    get influenced by a specific optimizing algorithm.
     Arguments:
         lam: proximal coefficient. It is used to apply soft thresholding and
             maintain the sparsity of all kernels.
@@ -57,7 +61,7 @@ class ModelWeightsReducer(callbacks.Callback):
             and maintain the reduced length of the weight module.
             It only take effects when > 0.0.
     """
-    def __init__(self, lam=0.0, mu=0.0):
+    def __init__(self, lam=0.0, mu=0.0, epsilon=1e-5):
         with K.name_scope(self.__class__.__name__):
             self.get_lambda = K.variable(lam, name='lambda')
             self.get_mu = K.variable(mu, name='mu')
@@ -94,8 +98,11 @@ class ModelWeightsReducer(callbacks.Callback):
                 if self.bool_l2:
                     w_l = (1 - getlr * self.get_mu) * w_l
                 if self.bool_l1:
-                    w_abs = math_ops.abs(w_l) - self.get_lambda * getlr
-                    w_l = gen_math_ops.sign(w_l) * math_ops.cast(gen_math_ops.greater(w_abs, 0), dtype=w_l.dtype) * w_abs
+                    w_abs = math_ops.abs(w_l) + self.get_lambda
+                    w_l = ( gen_math_ops.sign(w_l) + gen_math_ops.sign(random_ops.random_uniform(w_l.get_shape(), minval=-1.0, maxval=1.0)) * math_ops.cast(gen_math_ops.equal(w_l, 0), dtype=w_l.dtype) ) * w_abs
+                    w_abs_x = math_ops.abs(w) - self.get_lambda
+                    w_x = gen_math_ops.sign(w) * math_ops.cast(gen_math_ops.greater(w_abs_x, 0), dtype=w.dtype) * w_abs_x
+                    self.w_updates_aft.append(state_ops.assign(w, w_x))
                 self.w_updates.append(state_ops.assign(w, w_l))
         # Get and store the session
         self.session = K.get_session()
@@ -106,6 +113,10 @@ class ModelWeightsReducer(callbacks.Callback):
     def on_train_batch_begin(self, batch, logs=None):
         # Define the updating function
         self.session.run(fetches=self.w_updates)
+
+    def on_train_batch_end(self, batch, logs=None):
+        if self.bool_l1:
+            self.session.run(fetches=self.w_updates_aft)
 
 class OptimizerSwitcher(callbacks.Callback):
     """Optimizer switcher
