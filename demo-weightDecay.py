@@ -12,6 +12,12 @@
 # The L1 and L2 penalty could not work well on adaptive learning
 # rate algorithms. For example, L1 penalty could not maintain the
 # sparsity when using Adam.
+# However, the implementation ModelWeightsReducer solves this prob-
+# lem properly. For example, considering the L1 regularization, 
+# instead of applying the gradient from L1 penalty, our method
+# applies soft thresholding to the weights directly, so the spar-
+# sity will be maintained directly and do not get influenced by
+# a specifc optimizing method.
 # This test also check the Ghost layer. To learn more about how to
 # use Ghost layer, check mdnt.layers.Ghost.
 # Check the performances by:
@@ -155,7 +161,7 @@ if __name__ == '__main__':
     if args.mode.casefold() == 'tr' or args.mode.casefold() == 'train':
         x, y = load_data()
         determine = build_model()
-        determine.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
+        determine.compile(optimizer=mdnt.optimizers.optimizer('adam', l_rate=args.learningRate), 
                             loss=tf.losses.mean_squared_error)
         
         folder = os.path.abspath(os.path.join(args.rootPath, args.savedPath))

@@ -57,6 +57,7 @@ The following demos are working for denoising with MNIST data set.
 ### @ 06/24/2019
 
 1. Update the test (`demo-weightDecay`) for Ghost (`Ghost`) layers and weight decay callback (`ModelWeightsReducer`).
+2. Test the performance of `ModelWeightsReducer` on adaptive learning rate methods like Adam.
 
 ### @ 06/23/2019
 
