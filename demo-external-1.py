@@ -155,17 +155,15 @@ if __name__ == '__main__':
         with tf.name_scope(args.modelName):
             cart2polar_model = build_model()
         mdnt.save_model(cart2polar_model,
-                        filepath=args.savePath+'.h5',
-                        headpath=args.savePath+'_model.json',
-                        optmpath=args.savePath+'_optm.json')
+                        filepath=args.savedPath+'.h5',
+                        headpath=args.savedPath+'_model.json')
         cart2polar_model.save(args.savedPath+'.h5')
         print('Model saved to {0}'.format(args.savedPath+'.h5'))
         exit(0)
     elif args.mode.casefold() == 'rd' or args.mode.casefold() == 'read':
         with tf.name_scope(args.modelName):
             cart2polar_model = mdnt.load_model(filepath=args.savedPath+'.h5',
-                                               headpath=args.savePath+'_model.json',
-                                               optmpath=args.savePath+'_optm.json'
+                                               headpath=args.savedPath+'_model.json',
                                                custom_objects=customObj)
         cart2polar_model.summary()
     else:

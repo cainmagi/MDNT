@@ -422,7 +422,9 @@ if __name__ == '__main__':
             classifier.compile(optimizer=mdnt.optimizers.optimizer('nmoment', l_rate=args.learningRate), 
                                 loss=tf.keras.losses.categorical_crossentropy, metrics=[tf.keras.metrics.categorical_accuracy])
         else:
-            if args.optimizer == 'adam2sgd' or args.optimizer == 'amsgrad2sgd':
+            if args.optimizer == 'swats':
+                optm = mdnt.optimizers.SWATS(lr=args.learningRate, amsgrad=False)
+            elif args.optimizer == 'adam2sgd' or args.optimizer == 'amsgrad2sgd':
                 enable_amsgrad = args.optimizer == 'amsgrad2sgd'
                 optm = mdnt.optimizers.Adam2SGD(lr=args.learningRate, amsgrad=enable_amsgrad)
             elif args.optimizer == 'nadam2nsgd' or args.optimizer == 'namsgrad2nsgd':

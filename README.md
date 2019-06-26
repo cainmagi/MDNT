@@ -54,6 +54,12 @@ The following demos are working for denoising with MNIST data set.
 
 ## Update records
 
+### @ 06/26/2019
+
+1. Fix a bug for `demo-external-1`.
+2. Change the configuration for `demo-weightDecay`.
+3. Add SWATS optimizer test for `demo-classification`.
+
 ### @ 06/24/2019
 
 1. Update the test (`demo-weightDecay`) for Ghost (`Ghost`) layers and weight decay callback (`ModelWeightsReducer`).

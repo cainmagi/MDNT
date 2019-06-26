@@ -45,7 +45,7 @@ import mdnt
 import os, sys
 os.chdir(sys.path[0])
 
-VEC_LEN = 30
+VEC_LEN = 100
     
 def build_model():
     # Build the model. It only has one layer but all elements of the output is trainable.
@@ -147,7 +147,7 @@ if __name__ == '__main__':
     
     def load_data():
         y = 2 * np.random.rand(1, VEC_LEN) - 1
-        y[np.abs(y)<0.7] = 0.0
+        y[np.abs(y)<0.95] = 0.0
         y[y>0.6] = 1.0
         y[y<-0.6] = -1.0
         y = y + 0.6 * np.random.rand(1, VEC_LEN) - 0.3
@@ -174,7 +174,7 @@ if __name__ == '__main__':
         checkpointer = mdnt.utilities.callbacks.ModelCheckpoint(filepath=os.path.join(folder, 'model'),
                                                                 record_format='{epoch:02d}e-val_loss_{val_loss:.2f}',
                                                                 keep_max=1, save_best_only=True, verbose=1,  period=3)
-        regularizer = mdnt.utilities.callbacks.ModelWeightsReducer(lam=0.2, mu=1e-3)
+        regularizer = mdnt.utilities.callbacks.ModelWeightsReducer(lam=0.3, mu=1e-3)
         tf.gfile.MakeDirs(folder)
         determine.fit(x, y,
                     epochs=args.epoch,
