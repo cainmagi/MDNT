@@ -10,14 +10,16 @@
 # The default tools would be imported directly into the current
 # sub-module. It could be viewed as an extension of basic APIs
 # in this category.
+# Version: 0.26 # 2019/6/16
+# Comments:
+#   Fix a small bug for load_model.
 # Version: 0.25 # 2019/6/19
 # Comments:
-#   Revise the `save_model` and `load_model` and split the opt-
-#   imizer configurations into another file.
+#   Revise the save_model and load_model and split the optimizer
+#   configurations into another file.
 # Version: 0.20 # 2019/6/18
 # Comments:
-#   Finsh this submodule containing `save_model` and
-#   `load_model`.
+#   Finsh this submodule containing save_model and load_model.
 # Version: 0.10 # 2019/6/16
 # Comments:
 #   Create this submodule.
@@ -399,7 +401,10 @@ def load_model(filepath, headpath=None, optmpath=None, custom_objects=None, comp
 
         if compile:
             # instantiate optimizer
-            json_optm_dict = json.loads(fo.read())
+            if fo is not None:
+                json_optm_dict = json.loads(fo.read())
+            else:
+                json_optm_dict = dict()
             training_config = json_optm_dict.get('training_config')
             if training_config is None:
                 logging.warning('No training configuration found in save file: '

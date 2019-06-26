@@ -14,6 +14,10 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version 0.64-b # 2019/6/26
+# Comments:
+#   1. Finish the demo version for SWATS in .optimizers.
+#   2. Fix a small bug for mdnt.load_model
 # Version 0.64 # 2019/6/24
 # Comments:
 #   1. Finish ModelWeightsReducer in .utilities.callbacks.
@@ -172,7 +176,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.64'
+__version__ = '0.64-b'
 
 # Alias
 save_model = utilities.save_model

@@ -12,6 +12,7 @@ Now we have such progress on the semi-product:
 
 - [ ] optimzers:
     - [x] Manually switched optimizers (`Adam2SGD` and `NAdam2NSGD`).
+    - [x] Automatically switched optimizer (`SWATS`).
     - [ ] Advanced adaptive optimizers (`NAdam` supporting `amsgrad` and `Nadabound`).
     - [x] Wrapped default optimizers.
 - [x] layers:
@@ -60,6 +61,12 @@ Now we have such progress on the semi-product:
 Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
+
+### 0.64-b @ 06/26/2019
+
+1. Finish the demo version for `SWATS` in `.optimizers`. Need further tests.
+2. Fix a small bug for `mdnt.load_model`.
+3. Change the warning backend to tensorflow version.
 
 ### 0.64 @ 06/24/2019
 

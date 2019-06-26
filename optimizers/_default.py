@@ -9,6 +9,9 @@
 # Basic tools for this module.
 # The default tools would be imported directly into the current
 # sub-module.
+# Version: 0.16 # 2019/6/24
+# Comments:
+#   Change the warning interface to tensorflow version.
 # Version: 0.15 # 2019/6/23
 # Comments:
 #   Add support for plain momentum SGD.
@@ -23,17 +26,17 @@
 ################################################################
 '''
 
-import warnings
 from tensorflow.python.keras import optimizers
 from tensorflow.python.training import adagrad_da, proximal_gradient_descent
 from tensorflow.contrib.opt.python.training import weight_decay_optimizers
+from tensorflow.python.platform import tf_logging as logging
 
 def _raise_TF_warn():
-    warnings.warn('You are using TFOptimizer in this case. '
+    logging.warning('You are using TFOptimizer in this case. '
                   'It does not support saveing/loading optimizer'
                   ' via save_model() and load_model(). In some '
                   'cases, the option decay may not apply to this'
-                  ' interface.', Warning)
+                  ' interface.')
 
 def optimizer(name='adam', l_rate=0.01, decay=0.0):
     '''
@@ -67,7 +70,7 @@ def optimizer(name='adam', l_rate=0.01, decay=0.0):
     elif name == 'adamw':
         _raise_TF_warn()
         if decay != 0.0:
-            warnings.warn('This optimizer uses \'decay\' as \'weight_decay\'.', Warning)
+            logging.warning('This optimizer uses \'decay\' as \'weight_decay\'.')
         else:
             raise ValueError('Should use \'decay\' > 0 for AdamW.')
         return weight_decay_optimizers.AdamWOptimizer(weight_decay=decay, learning_rate=l_rate)
@@ -80,5 +83,5 @@ def optimizer(name='adam', l_rate=0.01, decay=0.0):
     elif name == 'proximal':
         _raise_TF_warn()
         if decay != 0.0:
-            warnings.warn('This optimizer does not support \'decay\'.', Warning)
+            logging.warning('This optimizer does not support \'decay\'.')
         return proximal_gradient_descent.ProximalGradientDescentOptimizer(l_rate)

@@ -16,10 +16,11 @@
 '''
 # Import sub-modules
 from ._default import optimizer as optimizer
-from .mixture import Adam2SGD, Nadam2NSGD
+from .mixture import Adam2SGD, Nadam2NSGD, SWATS
 
 # Set optimizer dictionaries
 customObjects = {
+    'SWATS': SWATS,
     'Adam2SGD': Adam2SGD,
     'Nadam2NSGD': Nadam2NSGD
 }
