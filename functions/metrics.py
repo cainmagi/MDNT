@@ -55,7 +55,7 @@ def correlation(y_true, y_pred):
         corr = [mean(y_true * y_pred) - mean(y_true) * mean(y_pred)] 
                / [ std(y_true) * std(m_y_pred) ]
     This function has been revised to prevent the division fail (0/0). When either y_true
-    or y_pred is 0, the correlation would be set as 1.0.
+    or y_pred is 0, the correlation would be set as 0.0.
     Input:
         y_true: label, tensor in any shape.
         y_pred: prediction, tensor in any shape.
@@ -69,7 +69,7 @@ def correlation(y_true, y_pred):
     s_denom = s_y_true * s_y_pred
     s_numer = math_ops.reduce_mean(y_true * y_pred, axis=0) - m_y_true * m_y_pred
     s_index = gen_math_ops.greater(s_denom, 0)
-    f1 = lambda: constant_op.constant(1.0)
+    f1 = lambda: constant_op.constant(0.0)
     f2 = lambda: math_ops.reduce_mean(array_ops.boolean_mask(s_numer,s_index)/array_ops.boolean_mask(s_denom,s_index))
     return control_flow_ops.case([(math_ops.reduce_any(s_index), f2)], default=f1)
 

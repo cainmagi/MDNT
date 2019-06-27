@@ -10,10 +10,10 @@ Still not available now, will implement in the future.
 
 Now we have such progress on the semi-product:
 
-- [ ] optimzers:
+- [x] optimzers:
     - [x] Manually switched optimizers (`Adam2SGD` and `NAdam2NSGD`).
     - [x] Automatically switched optimizer (`SWATS`).
-    - [ ] Advanced adaptive optimizers (`NAdam` supporting `amsgrad` and `Nadabound`).
+    - [x] Advanced adaptive optimizers ( `Adabound`, `Nadabound` and `MNadam` supporting `amsgrad`).
     - [x] Wrapped default optimizers.
 - [x] layers:
     - [x] Ghost layer (used to construct trainable input layer).
@@ -61,6 +61,12 @@ Now we have such progress on the semi-product:
 Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
+
+### 0.68 @ 06/27/2019
+
+1. Finish `MNadam`, `Adabound` and `Nadabound` in `.optimizers`.
+2. Slightly change `.optimizers.mixture`.
+3. Change the quick interface in `.optimizers`.
 
 ### 0.64-b @ 06/26/2019
 

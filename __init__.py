@@ -14,6 +14,11 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version 0.68 # 2019/6/27
+# Comments:
+#   1. Finish MNadam, Adabound and Nadabound in .optimizers.
+#   2. Slightly change .optimizers.mixture.
+#   3. Change the quick interface in .optimizers.
 # Version 0.64-b # 2019/6/26
 # Comments:
 #   1. Finish the demo version for SWATS in .optimizers.
@@ -176,7 +181,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.64-b'
+__version__ = '0.68'
 
 # Alias
 save_model = utilities.save_model

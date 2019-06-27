@@ -9,6 +9,9 @@
 # This module contains the optimizers that has multiple phases.
 # In different phases, those optimizers would adopt different
 # algorithms. A typical example is the SWATS optimizer.
+# Version: 0.21 # 2019/6/27
+# Comments:
+#    Slightly change the implementation.
 # Version: 0.20 # 2019/6/26
 # Comments:
 #    Finish the demo version for SWATS.
@@ -120,7 +123,7 @@ class SWATS(optimizers.Optimizer):
 
         with ops.control_dependencies([state_ops.assign_add(self.iterations, 1)]):
             t = math_ops.cast(self.iterations, K.floatx())
-        lr_bc = K.sqrt(1. - math_ops.pow(self.beta_2, t)) / (1. - math_ops.pow(self.beta_1, t))
+        lr_bc = gen_math_ops.sqrt(1. - math_ops.pow(self.beta_2, t)) / (1. - math_ops.pow(self.beta_1, t))
 
         ms = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
         vs = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
@@ -138,10 +141,10 @@ class SWATS(optimizers.Optimizer):
             v_t = (self.beta_2 * v) + (1. - self.beta_2) * math_ops.square(g)
             if self.amsgrad:
                 vhat_t = math_ops.maximum(vhat, v_t)
-                p_t_ada = lr_bc * m_t / (K.sqrt(vhat_t) + self.epsilon)
+                p_t_ada = lr_bc * m_t / (gen_math_ops.sqrt(vhat_t) + self.epsilon)
                 self.updates.append(state_ops.assign(vhat, vhat_t))
             else:
-                p_t_ada = lr_bc * m_t / (K.sqrt(v_t) + self.epsilon)
+                p_t_ada = lr_bc * m_t / (gen_math_ops.sqrt(v_t) + self.epsilon)
             gamma_den = math_ops.reduce_sum(p_t_ada * g)
             gamma = math_ops.reduce_sum(gen_math_ops.square(p_t_ada)) / (math_ops.abs(gamma_den) + self.epsilon) * (gen_math_ops.sign(gamma_den) + self.epsilon)
             lam_t = (self.beta_2 * lam) + (1. - self.beta_2) * gamma
@@ -153,7 +156,7 @@ class SWATS(optimizers.Optimizer):
             self.updates.append(state_ops.assign(lam, lam_update))
             self.updates.append(state_ops.assign(cond, cond_update))
 
-            p_t_sgd = (1 - self.beta_1) * lam_prime * m_t
+            p_t_sgd = (1. - self.beta_1) * lam_prime * m_t
 
             self.updates.append(state_ops.assign(m, m_t))
             self.updates.append(state_ops.assign(v, v_t))
@@ -265,7 +268,7 @@ class Adam2SGD(optimizers.Optimizer):
 
         with ops.control_dependencies([state_ops.assign_add(self.iterations, 1)]):
             t = math_ops.cast(self.iterations, K.floatx())
-        lr_t = lr * ( K.sqrt(1. - math_ops.pow(self.beta_2, t)) / (1. - math_ops.pow(self.beta_1, t)) )
+        lr_t = lr * ( gen_math_ops.sqrt(1. - math_ops.pow(self.beta_2, t)) / (1. - math_ops.pow(self.beta_1, t)) )
 
         ms = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
         vs = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
@@ -280,10 +283,10 @@ class Adam2SGD(optimizers.Optimizer):
             v_t = (self.beta_2 * v) + (1. - self.beta_2) * math_ops.square(g)
             if self.amsgrad:
                 vhat_t = math_ops.maximum(vhat, v_t)
-                p_t_ada = p - lr_t * m_t / (K.sqrt(vhat_t) + self.epsilon)
+                p_t_ada = p - lr_t * m_t / (gen_math_ops.sqrt(vhat_t) + self.epsilon)
                 self.updates.append(state_ops.assign(vhat, vhat_t))
             else:
-                p_t_ada = p - lr_t * m_t / (K.sqrt(v_t) + self.epsilon)
+                p_t_ada = p - lr_t * m_t / (gen_math_ops.sqrt(v_t) + self.epsilon)
             p_t_sgd = p - self.lr_boost * lr * m_t
 
             self.updates.append(state_ops.assign(m, m_t))
@@ -434,12 +437,12 @@ class Nadam2NSGD(optimizers.Optimizer):
                 v_t_prime = vhat_t / (1. - math_ops.pow(self.beta_2, t))
             else:
                 v_t_prime = v_t / (1. - math_ops.pow(self.beta_2, t))
-            m_t_bar = (1. - momentum_cache_t) * g_prime + momentum_cache_t_1 * m_t_prime
+            m_t_bar = (self.beta_g / (1.-self.beta_1)) * (1. - momentum_cache_t) * g_prime + momentum_cache_t_1 * m_t_prime
 
             self.updates.append(state_ops.assign(m, m_t))
             self.updates.append(state_ops.assign(v, v_t))
 
-            p_t_ada = p - lr * m_t_bar / (K.sqrt(v_t_prime) + self.epsilon)
+            p_t_ada = p - lr * m_t_bar / (gen_math_ops.sqrt(v_t_prime) + self.epsilon)
             p_t_sgd = p - self.lr_boost * lr * m_t_bar
             
             new_p = m_switch(self.switch_flag, p_t_sgd, p_t_ada)

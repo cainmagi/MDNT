@@ -17,12 +17,16 @@
 # Import sub-modules
 from ._default import optimizer as optimizer
 from .mixture import Adam2SGD, Nadam2NSGD, SWATS
+from .adaptive import Nadabound, Adabound, MNadam
 
 # Set optimizer dictionaries
 customObjects = {
     'SWATS': SWATS,
     'Adam2SGD': Adam2SGD,
-    'Nadam2NSGD': Nadam2NSGD
+    'Nadam2NSGD': Nadam2NSGD,
+    'Nadabound': Nadabound,
+    'Adabound': Adabound,
+    'MNadam': MNadam
 }
 
 # Set this local module as the prefered one
