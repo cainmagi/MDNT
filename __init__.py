@@ -14,6 +14,10 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version 0.69 # 2019/9/10
+# Comments:
+#   Enable the H5SupSaver in .data to expand if data is dumped
+#   in series.
 # Version 0.68 # 2019/6/27
 # Comments:
 #   1. Finish MNadam, Adabound and Nadabound in .optimizers.
@@ -181,7 +185,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.68'
+__version__ = '0.69'
 
 # Alias
 save_model = utilities.save_model

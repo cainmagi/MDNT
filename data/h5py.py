@@ -10,6 +10,11 @@
 # Warning:
 #   The standard tf dataset is proved to be incompatible with 
 #   tf-K architecture. We need to wait until tf fix the bug.
+# Version: 0.22 # 2019/9/10
+# Comments:
+#   Modify `H5SupSaver` to enable it to resize dataset if the
+#   data is dumped in series. Now dumping data into an exist-
+#   ing dataset would expand the set.
 # Version: 0.20 # 2019/3/31
 # Comments:
 #   Add a new class, `H5GCombiner`.
@@ -80,14 +85,30 @@ class H5SupSaver:
             data:    dataset, should be a numpy array.
         Providing more configurations for `create_dataset` would override
         the default configuration defined by self.config()
+        If the provided `keyword` exists, the dataset would be resized for
+        accepting more data.
         '''
         if self.f is None:
             raise OSError('Should not dump data before opening a file.')
         newkw = self.__kwargs.copy()
         newkw.update(kwargs)
-        self.f.create_dataset(keyword, data=data, **newkw)
-        if self.logver > 0:
-            print('Dump {0} into the file. The data shape is {1}.'.format(keyword, data.shape))
+        dshape = data.shape[1:]
+        if keyword in self.f:
+            ds = self.f[keyword]
+            dsshape = ds.shape[1:]
+            if np.all(np.array(dshape, dtype=np.int) == np.array(dsshape, dtype=np.int)):
+                N = len(ds)
+                newN = data.shape[0]
+                ds.resize(N+newN, axis=0)
+                ds[N:N+newN, ...] = data
+                if self.logver > 0:
+                    print('Dump {smp} data samples into the existed dataset {ds}. The data shape is {sze} now.'.format(smp=newN, ds=keyword, sze=ds.shape))
+            else:
+                raise ValueError('The data set shape {0} does not match the input shape {1}.'.format(dsshape, dshape))
+        else:
+            self.f.create_dataset(keyword, data=data, maxshape=(None, *dshape), **newkw)
+            if self.logver > 0:
+                print('Dump {0} into the file. The data shape is {1}.'.format(keyword, data.shape))
     
     def open(self, fileName):
         '''
