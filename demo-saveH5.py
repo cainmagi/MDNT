@@ -10,6 +10,10 @@
 #   numpy, matplotlib
 # This is just a simple demo for saving H5 file.
 # The script would produce a mnist dataset.
+# Version: 1.20 # 2019/9/10
+# Comments:
+#   Enable the dataset to be resized (expanded) if dumping more
+#   data.
 # Version: 1.10 # 2019/3/26
 # Comments:
 #   Enable the data stored by compressed mode without impact on the
@@ -38,3 +42,4 @@ if __name__ == '__main__':
     S_test.dump('Y', y_test)
     S_test.open('mnist-test-single')
     S_test.dump('X', x_test)
+    S_test.dump('X', x_train)

@@ -54,6 +54,10 @@ The following demos are working for denoising with MNIST data set.
 
 ## Update records
 
+### @ 09/10/2019
+
+1. Modify `demo-saveH5` to test the performance of dumping multiple data arrays into the same dataset.
+
 ### @ 06/26/2019
 
 1. Fix a bug for `demo-external-1`.
