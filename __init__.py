@@ -14,6 +14,9 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version 0.69-b # 2019/10/7
+# Comments:
+#   Enable the H5SupSaver to add more data to an existed file.
 # Version 0.69 # 2019/9/10
 # Comments:
 #   Enable the H5SupSaver in .data to expand if data is dumped
@@ -185,7 +188,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.69'
+__version__ = '0.69-b'
 
 # Alias
 save_model = utilities.save_model

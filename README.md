@@ -62,6 +62,10 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.69-b @ 10/07/2019
+
+Enable the `H5SupSaver` in `.data` to add more data to an existed file.
+    
 ### 0.69 @ 09/10/2019
 
 Enable the `H5SupSaver` in `.data` to expand if data is dumped in series.

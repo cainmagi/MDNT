@@ -10,6 +10,10 @@
 # Warning:
 #   The standard tf dataset is proved to be incompatible with 
 #   tf-K architecture. We need to wait until tf fix the bug.
+# Version: 0.23 # 2019/10/7
+# Comments:
+#   Modify `H5SupSaver` to enable it to add more data to an
+#   existed file.
 # Version: 0.22 # 2019/9/10
 # Comments:
 #   Modify `H5SupSaver` to enable it to resize dataset if the
@@ -44,16 +48,19 @@ class H5SupSaver:
     handle, then it would save it as a .h5 file. The keywords of the
     sets should be assigned by users.
     '''
-    def __init__(self, fileName):
+    def __init__(self, fileName, enableRead=False):
         '''
         Create the .h5 file while initialization.
         Arguments:
-            fileName: a path where we save the file.
+            fileName:   a path where we save the file.
+            enableRead: when set True, enable the read/write mode.
+                        This option is used when adding data to an
+                        existed file.
         '''
         self.f = None
         self.logver = 0
         self.__kwargs = dict()
-        self.open(fileName)
+        self.open(fileName, enableRead)
         self.config(dtype='f')
         
     def config(self, **kwargs):
@@ -110,16 +117,23 @@ class H5SupSaver:
             if self.logver > 0:
                 print('Dump {0} into the file. The data shape is {1}.'.format(keyword, data.shape))
     
-    def open(self, fileName):
+    def open(self, fileName, enableRead=False):
         '''
         The dumped file name (path), it will produce a .h5 file.
         Arguments:
             fileName: a path where we save the file.
+            enableRead: when set True, enable the read/write mode.
+                        This option is used when adding data to an
+                        existed file.
         '''
         if fileName[-3:] != '.h5':
             fileName += '.h5'
         self.close()
-        self.f = h5py.File(fileName, 'w')
+        if enableRead:
+            fmode = 'a'
+        else:
+            fmode = 'w'
+        self.f = h5py.File(fileName, fmode)
         if self.logver > 0:
             print('Open a new file:', fileName)
         
