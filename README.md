@@ -52,6 +52,7 @@ Now we have such progress on the semi-product:
     - [x] Revised save and load model functions.
     - [ ] Beholder plug-in callback.
     - [x] Revised ModelCheckpoint callback.
+    - [x] LossWeightsScheduler callback (for changing the loss weights during the training).
     - [x] OptimizerSwitcher callback (for using manually switched optimizers).
     - [x] ModelWeightsReducer callback (parameter decay strategy including L1 decay and L2 decay).
     - [ ] Extended data visualization tools.
@@ -61,6 +62,11 @@ Now we have such progress on the semi-product:
 Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
+
+### 0.70 @ 10/15/2019
+
+1. Let `mdnt.save_model`/`mdnt.load_model` supports storing/recovering variable loss weights.
+2. Finish `LossWeightsScheduler` in `.utilities.callbacks`.
 
 ### 0.69-b @ 10/07/2019
 

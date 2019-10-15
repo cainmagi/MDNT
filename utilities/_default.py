@@ -10,6 +10,10 @@
 # The default tools would be imported directly into the current
 # sub-module. It could be viewed as an extension of basic APIs
 # in this category.
+# Version: 0.30 # 2019/10/15
+# Comments:
+#   Let save_model and load_model supports storing/recovering
+#   variable loss weights.
 # Version: 0.26 # 2019/6/16
 # Comments:
 #   Fix a small bug for load_model.
@@ -32,6 +36,7 @@ import json
 import numpy as np
 from six.moves import zip  # pylint: disable=redefined-builtin
 
+from tensorflow.python.ops import variables
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import optimizers
 from tensorflow.python.keras.utils.io_utils import ask_to_proceed_with_overwrite
@@ -163,6 +168,9 @@ def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, in
             if hasattr(optmpath, 'decode'):
                 optmpath = optmpath.decode('utf-8')
             optmpath = os.path.splitext(optmpath)[0] + '.json'
+        
+        if isinstance(optmpath, str) and optmpath == headpath:
+            optmpath = os.path.splitext(optmpath)[0] + '_opt.json'
 
         # Examine the file existence and open the JSON file.
         if not isinstance(optmpath, io.IOBase):
@@ -218,10 +226,14 @@ def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, in
                         'loss': model.loss,
                         'metrics': model._compile_metrics,
                         'weighted_metrics': model._compile_weighted_metrics,
-                        'sample_weight_mode': model.sample_weight_mode,
-                        'loss_weights': model.loss_weights
+                        'sample_weight_mode': model.sample_weight_mode
+                        #'loss_weights': loss_weights
                     }
                 }
+
+                # Save loss weights
+                loss_weights_group = f.create_group('loss_weights')
+                save_loss_weights_to_hdf5_group(loss_weights_group, json_optm_dict, model.loss_weights)
 
                 # Save optimizer weights.
                 symbolic_weights = getattr(model.optimizer, 'weights')
@@ -370,6 +382,9 @@ def load_model(filepath, headpath=None, optmpath=None, custom_objects=None, comp
             if hasattr(optmpath, 'decode'):
                 optmpath = optmpath.decode('utf-8')
             optmpath = os.path.splitext(optmpath)[0] + '.json'
+        
+        if isinstance(optmpath, str) and optmpath == headpath:
+            optmpath = os.path.splitext(optmpath)[0] + '_opt.json'
 
         # Examine the file existence and open the JSON file.
         opened_new_optm = not isinstance(optmpath, io.IOBase)
@@ -420,7 +435,11 @@ def load_model(filepath, headpath=None, optmpath=None, custom_objects=None, comp
             weighted_metrics = convert_custom_objects(
                 training_config.get('weighted_metrics', None))
             sample_weight_mode = training_config['sample_weight_mode']
-            loss_weights = training_config['loss_weights']
+
+            if 'loss_weights' in f:
+                loss_weights = load_loss_weights_from_hdf5_group(f['loss_weights'], json_optm_dict)
+            else: # Compatibility for old versions.
+                loss_weights = training_config['loss_weights']
 
             # Compile model.
             model.compile(
@@ -600,3 +619,127 @@ def load_attributes_from_hdf5_group(fh_dict, group_name, name):
     gp_entry = fh_dict['group_attributes']
     gp = gp_entry[group_name]
     return gp[name]
+
+def save_loss_weights_to_hdf5_group(f, fh_dict, loss_weights):
+    """Implements loss weight saving.
+    This is the extension for implementing the saving session for loss
+    weights. It will enable the save_model to save loss weights if they
+    are compiled as variables. The parameter value would be dumped into
+    hdf5 file and in the configuration, the variables are tagged by their
+    names.
+    Arguments:
+        f:       a pointer to a HDF5 loss weights group.
+        fh_dict: JSON config dictionary.
+        loss_weights: a list, or dictionary of loss weights.
+    Raises:
+        ValueError: if the loss_weights is not list, tuple or dict.
+    """
+    cfg_entry = fh_dict['training_config']
+    if loss_weights is None: # In None case, the 
+        cfg_entry['loss_weights'] = None
+        return
+
+    # Serialize the loss weights, filter the constants and get variables.
+    symbolic_weights = []
+    weight_names = []
+    i = 0
+    if isinstance(loss_weights, (list, tuple)):
+        serialized = []
+        for value in loss_weights:
+            if isinstance(value, variables.Variable):
+                if hasattr(value, 'name') and value.name:
+                    name = str(value.name)
+                else:
+                    name = 'loss_param_' + str(i)
+                    i += 1
+                serialized.append(name)
+                weight_names.append(name)
+                symbolic_weights.append(value)
+            else:
+                serialized.append(value)
+    elif isinstance(loss_weights, dict):
+        serialized = {}
+        for key, value in loss_weights.items():
+            if isinstance(value, variables.Variable):
+                if hasattr(value, 'name') and value.name:
+                    name = str(value.name)
+                else:
+                    name = 'loss_param_' + str(i)
+                    i += 1
+                serialized[key] = name
+                weight_names.append(name)
+                symbolic_weights.append(value)
+            else:
+                serialized[key] = value
+    else:
+        raise ValueError('The parameter loss_weights needs to be a list or a dictionary, maybe you need to recompile your model.')
+    # Dump configurations
+    cfg_entry['loss_weights'] = serialized
+    # Dump variables into hdf5 set.
+    weight_values = K.batch_get_value(symbolic_weights)
+    for name, val in zip(weight_names, weight_values):
+        param_dset = f.create_dataset(name, val.shape, dtype=val.dtype)
+        if not val.shape:
+            # scalar
+            param_dset[()] = val
+        else:
+            param_dset[:] = val
+
+def load_loss_weights_from_hdf5_group(f, fh_dict):
+    """Implements loss weight loading.
+    This is the extension for implementing the loading session for loss
+    weights. It will enable the load_model to load loss weights if they
+    are compiled as variables before saving. The variable names would
+    be extracted from the config dictionary and the values would be
+    extracted from the hdf5 dataset by indexing the variable names.
+    Arguments:
+        f:       a pointer to a HDF5 loss weights group.
+        fh_dict: JSON config dictionary.
+    Returns:
+        loss_weights: a list, or dictionary of loss weights.
+    Raises:
+        ValueError: if the loss_weights is not list, tuple or dict.
+        ValueError: if a saved variable has a wrong tag.
+    """
+    cfg_entry = fh_dict['training_config']
+    loss_serialized = cfg_entry['loss_weights']
+    if loss_serialized is None: # In None case, the 
+        return None
+    
+    # Retain constant weights, and retrieve variables according to name tag.
+    if isinstance(loss_serialized, (list, tuple)):
+        loss_weights = []
+        for value in loss_serialized:
+            if isinstance(value, str):
+                var = list(filter(lambda x:x.name==value, [op for op in variables.global_variables(scope=None)]))
+                if var:
+                    var = var[0]
+                    K.set_value(var, value=np.asarray(f[value]))
+                else:
+                    if value[-2:] == ':0':
+                        var = K.variable(value=np.asarray(f[value]), name=value[:-2])
+                    else:
+                        raise ValueError('The name of a variable in loss_weights should end with :0, because it is produced by K.variable.')
+            else:
+                var = value
+            loss_weights.append(var)
+    elif isinstance(loss_serialized, dict):
+        loss_weights = {}
+        for key, value in loss_serialized.items():
+            if isinstance(value, str):
+                var = list(filter(lambda x:x.name==value, [op for op in variables.global_variables(scope=None)]))
+                if var:
+                    var = var[0]
+                    K.set_value(var, value=np.asarray(f[value]))
+                else:
+                    if value[-2:] == ':0':
+                        var = K.variable(value=np.asarray(f[value]), name=value[:-2])
+                    else:
+                        raise ValueError('The name of a variable in loss_weights should end with :0, because it is produced by K.variable.')
+            else:
+                var = value
+            loss_weights[key] = var
+    else:
+        raise ValueError('The parameter loss_weights needs to be a list or a dictionary, maybe you need to recompile your model.')
+
+    return loss_weights

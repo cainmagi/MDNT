@@ -14,6 +14,11 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version 0.70 # 2019/10/15
+# Comments:
+#   1. Let save_model/load_model supports storing/recovering
+#      variable loss weights.
+#   2. Finish LossWeightsScheduler in .utilities.callbacks.
 # Version 0.69-b # 2019/10/7
 # Comments:
 #   Enable the H5SupSaver to add more data to an existed file.
@@ -188,7 +193,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.69-b'
+__version__ = '0.70'
 
 # Alias
 save_model = utilities.save_model

@@ -8,6 +8,9 @@
 #   tensorflow r1.13+
 # Extend loss functions. These functions could serve as both
 # losses and metrics.
+# Version: 0.20 # 2019/10/15
+# Comments:
+#   Finish LossWeightsScheduler.
 # Version: 0.18 # 2019/6/24
 # Comments:
 # 1. Finish ModelWeightsReducer.
@@ -27,6 +30,7 @@
 from datetime import datetime
 import os
 import numpy as np
+from tensorflow.python.ops import variables
 from tensorflow.python.keras import callbacks
 from tensorflow.python.keras import backend as K
 from tensorflow.python.platform import tf_logging as logging
@@ -37,6 +41,102 @@ from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import gen_math_ops
 
 from . import _default
+
+class LossWeightsScheduler(callbacks.Callback):
+    """Learning rate scheduler.
+    Arguments:
+        schedule: a function that takes an epoch index as input
+            (integer, indexed from 0) and returns a new
+            loss weights as output.
+        verbose: int. 0: quiet, 1: update messages.
+    Here we show two examples:
+    ```python
+    # This function is designed for a two-phase training. In the
+    # first phase, the learning rate is (0.8, 0.2);
+    # In the second phase, the learning rate is 
+    # (0.2, 0.8);
+    def scheduler(epoch):
+        if epoch < 10:
+            return [0.8, 0.2]
+        else:
+            return [0.2, 0.8]
+    model.compile(..., loss_weights=[K.variable(0.5),
+                  K.variable(0.5)])
+    callback = mdnt.utilities.callbacks.LossWeightsScheduler(scheduler)
+    model.fit(data, labels, epochs=100, callbacks=[callback],
+              validation_data=(val_data, val_labels))
+    ```
+    ```python
+    # This function is designed for a two-phase training. In the
+    # first phase, the learning rate is (alpha=0.8, beta=0.2);
+    # In the second phase, the learning rate is 
+    # (alpha=0.2, beta=0.8);
+    def scheduler(epoch):
+        if epoch < 10:
+            return {'alpha':0.8, 'beta':0.2}
+        else:
+            return {'alpha':0.2, 'beta':0.8}
+    model.compile(..., loss_weights={'alpha':K.variable(0.5), 
+                  'beta':K.variable(0.5)})
+    callback = mdnt.utilities.callbacks.LossWeightsScheduler(scheduler)
+    model.fit(data, labels, epochs=100, callbacks=[callback],
+              validation_data=(val_data, val_labels))
+    ```
+    """
+
+    def __init__(self, schedule, verbose=0):
+        super(LossWeightsScheduler, self).__init__()
+        self.schedule = schedule
+        self.verbose = verbose
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if not hasattr(self.model, 'loss_weights'):
+            raise ValueError('Model must have a "loss_weights" attribute.')
+        lw = self.model.loss_weights
+        if lw is None:
+            raise ValueError('model.loss_weights needs to be set.')
+        lw_val = self.schedule(epoch) # Get losses
+        if isinstance(lw, dict):
+            if not isinstance(lw_val, dict):
+                raise ValueError('model.loss_weights is a dict, you need to '
+                                 'provides a corresponding dict for updating it.')
+            for k, v in lw:
+                if isinstance(v, variables.Variable):
+                    K.set_value(v, lw_val[k])
+        elif isinstance(lw, (list, tuple)):
+            if not isinstance(lw_val, (list, tuple, np.ndarray)):
+                raise ValueError('model.loss_weights is a sequence, you need to '
+                                 'provides a corresponding sequence for updating it.')
+            s = 0
+            for v in lw:
+                if isinstance(v, variables.Variable):
+                    K.set_value(v, lw_val[s])
+                    s += 1
+        else:
+            raise ValueError('model.loss_weights could not be updated, please check'
+                             'your definition.')
+        if self.verbose > 0:
+            print('\nEpoch %05d: LossWeightsScheduler set var.lw to %s.' % (epoch + 1, lw_val))
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        lw = self.model.loss_weights
+        lw_var = None
+        if isinstance(lw, dict):
+            lw_var = {}
+            for k, v in lw:
+                if isinstance(v, variables.Variable):
+                    lw_var[k] = K.get_value(v)
+                else:
+                    lw_var[k] = v
+        elif isinstance(lw, (list, tuple)):
+            lw_var = []
+            for v in lw:
+                if isinstance(v, variables.Variable):
+                    lw_var.append(K.get_value(v))
+                else:
+                    lw_var.append(v)
+        logs['loss_weights'] = lw_var
 
 class ModelWeightsReducer(callbacks.Callback):
     """Model weights reducer
