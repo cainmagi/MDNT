@@ -16,6 +16,7 @@
 '''
 
 # Import sub-modules
+from .activation import Slice, Restrict, RestrictSub
 from .dense import Ghost, DenseTied
 from .dropout import InstanceGaussianNoise
 from .normalize import InstanceNormalization, GroupNormalization
@@ -26,6 +27,9 @@ from .inception import Inception1D, Inception2D, Inception3D, Inception1DTranspo
 
 # Set layer dictionaries
 customObjects = {
+    'Slice': Slice,
+    'Restrict': Restrict,
+    'RestrictSub': RestrictSub,
     'Ghost': Ghost,
     'DenseTied': DenseTied,
     'InstanceGaussianNoise': InstanceGaussianNoise,

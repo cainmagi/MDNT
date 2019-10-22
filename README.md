@@ -19,7 +19,8 @@ Now we have such progress on the semi-product:
     - [x] Ghost layer (used to construct trainable input layer).
     - [x] Tied dense layer for the symmetric autoencoder.
     - [x] Extended dropout and noise layers.
-    - [x] Extened normalization layers.
+    - [x] Extended activation layers.
+    - [x] Extended normalization layers.
     - [x] Group convolutional layers.
     - [x] Modern convolutional layers (support group convolution).
     - [x] Modern transposed convolutional layers (support group convolution).
@@ -63,9 +64,14 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.72 @ 10/22/2019
+
+1. Fix a bug for serializing `Ghost` in `.layers`.
+2. Finish activation layers in `.layers`, including. `Slice`, `Restrict` and `RestrictSub`.
+
 ### 0.70 @ 10/15/2019
 
-1. Let `mdnt.save_model`/`mdnt.load_model` supports storing/recovering variable loss weights.
+1. Let `.save_model`/`.load_model` supports storing/recovering variable loss weights.
 2. Finish `LossWeightsScheduler` in `.utilities.callbacks`.
 
 ### 0.69-b @ 10/07/2019
@@ -85,7 +91,7 @@ Enable the `H5SupSaver` in `.data` to expand if data is dumped in series.
 ### 0.64-b @ 06/26/2019
 
 1. Finish the demo version for `SWATS` in `.optimizers`. Need further tests.
-2. Fix a small bug for `mdnt.load_model`.
+2. Fix a small bug for `.load_model`.
 3. Change the warning backend to tensorflow version.
 
 ### 0.64 @ 06/24/2019

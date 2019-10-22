@@ -14,6 +14,10 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version 0.72 # 2019/10/22
+# Comments:
+#   1. Fix a bug for Ghost in .layers.
+#   2. Finish Slice, Restrict and RestrictSub in .layers.
 # Version 0.70 # 2019/10/15
 # Comments:
 #   1. Let save_model/load_model supports storing/recovering
@@ -34,7 +38,7 @@
 # Version 0.64-b # 2019/6/26
 # Comments:
 #   1. Finish the demo version for SWATS in .optimizers.
-#   2. Fix a small bug for mdnt.load_model
+#   2. Fix a small bug for .load_model
 # Version 0.64 # 2019/6/24
 # Comments:
 #   1. Finish ModelWeightsReducer in .utilities.callbacks.
