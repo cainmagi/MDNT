@@ -197,7 +197,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.70'
+__version__ = '0.72'
 
 # Alias
 save_model = utilities.save_model
