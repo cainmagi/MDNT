@@ -64,10 +64,17 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.73 @ 10/24/2019
+
+1. Fix a bug for `H5GCombiner` in `.data` when adding more parsers.
+2. Finish `H5VGParser` in `.data`, this parser is used for splitting validation set from a dataset.
+3. Finish `ExpandDims` in `.layers`, it is a layer version of `tf.expand_dims`.
+4. Enable `ModelCheckpoint` in `.utilities.callbacks` to support the option for not saving optimizer.
+
 ### 0.72 @ 10/22/2019
 
 1. Fix a bug for serializing `Ghost` in `.layers`.
-2. Finish activation layers in `.layers`, including. `Slice`, `Restrict` and `RestrictSub`.
+2. Finish activation layers in `.layers`, including `Slice`, `Restrict` and `RestrictSub`.
 
 ### 0.70 @ 10/15/2019
 

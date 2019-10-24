@@ -8,6 +8,9 @@
 #   tensorflow r1.13+
 # Extend the activation layer APIs. It allows more useful
 # functions for building a complicated network.
+# Version: 0.16 # 2019/10/23
+# Comments:
+#   Finish the ExpandDims layer.
 # Version: 0.15 # 2019/10/22
 # Comments:
 #   Finish the Restrict and RestrictSub layers.
@@ -20,6 +23,7 @@
 ################################################################
 '''
 
+import copy
 import numpy as np
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.framework import ops
@@ -29,6 +33,7 @@ from tensorflow.python.keras import constraints
 from tensorflow.python.keras import initializers
 from tensorflow.python.keras import regularizers
 from tensorflow.python.keras.engine.base_layer import Layer
+from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import gen_math_ops
 from tensorflow.python.ops import nn_ops
@@ -40,6 +45,38 @@ if compat.COMPATIBLE_MODE:
     from tensorflow.python.keras.engine.base_layer import InputSpec
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec
+
+class ExpandDims(Layer):
+    '''Expand a new dimension at the specific location.
+    This is the layer version for using tf.expand_dims.
+    Arguments:
+        axis: The location where we insert the new dimension.
+    Input shape:
+        Arbitrary. Use the keyword argument `input_shape`
+        (tuple of integers, does not include the samples axis)
+        when using this layer as the first layer in a model.
+    Output shape:
+        Same as the input shape except the newly inserted
+        dimension.
+    '''
+
+    def __init__(self, axis, **kwargs):
+        super(ExpandDims, self).__init__(**kwargs)
+        self.axis = int(axis)
+
+    def compute_output_shape(self, input_shape):
+        input_shape = tensor_shape.TensorShape(input_shape).as_list()
+        output_shape = copy.copy(input_shape)
+        output_shape.insert(self.axis, 1)
+        return tensor_shape.TensorShape(output_shape)
+
+    def call(self, inputs):
+        return array_ops.expand_dims(inputs, axis=self.axis)
+
+    def get_config(self):
+        config = {'axis': self.axis}
+        base_config = super(ExpandDims, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
 
 class RestrictSub(Layer):
     '''Restrict the last dimension into given sub-ranges

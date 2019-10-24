@@ -16,7 +16,7 @@
 '''
 
 # Import sub-modules
-from .activation import Slice, Restrict, RestrictSub
+from .activation import Slice, Restrict, RestrictSub, ExpandDims
 from .dense import Ghost, DenseTied
 from .dropout import InstanceGaussianNoise
 from .normalize import InstanceNormalization, GroupNormalization
@@ -30,6 +30,7 @@ customObjects = {
     'Slice': Slice,
     'Restrict': Restrict,
     'RestrictSub': RestrictSub,
+    'ExpandDims': ExpandDims,
     'Ghost': Ghost,
     'DenseTied': DenseTied,
     'InstanceGaussianNoise': InstanceGaussianNoise,

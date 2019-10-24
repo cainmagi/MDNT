@@ -10,6 +10,11 @@
 # Warning:
 #   The standard tf dataset is proved to be incompatible with 
 #   tf-K architecture. We need to wait until tf fix the bug.
+# Version: 0.24 # 2019/10/23
+# Comments:
+#   1. Finsish `H5VGParser` for splitting valid set from a
+#   train set.
+#   2. Fix a bug for `H5GCombiner` when adding new parsers.
 # Version: 0.23 # 2019/10/7
 # Comments:
 #   Modify `H5SupSaver` to enable it to add more data to an
@@ -287,7 +292,7 @@ class H5GCombiner(tf.keras.utils.Sequence):
         for p in args:
             if not isinstance(p, H5GParser):
                 raise TypeError('The type of one input argument is not H5Parser, need to check the inputs.')
-        self.__parserList = args
+        self.__parserList = list(args)
         self.__sizeList = [len(p) for p in self.__parserList]
         self.__indexList = [0] * self.__setSize
         self.__preprocfunc = preprocfunc
@@ -322,13 +327,76 @@ class H5GCombiner(tf.keras.utils.Sequence):
         Add a new H5Parser into this combination.
         The added parser (subset) would be appended on the end of the parser list.
         '''
-        if not isinstance(p, H5GParser):
+        if not isinstance(newparser, H5GParser):
             raise TypeError('The type of appended instance is not H5Parser, need to check the input.')
         self.__indexList.append(0)
         self.__sizeList.append(len(newparser))
         self.__parserList.append(newparser)
         self.__setSize += 1
-        
+
+class H5VGParser:
+    '''Grouply parsing dataset for training/validating.
+    This is a factory class. It accepts the same arguments of H5GParser,
+    but split the dataset into a train set and a valid set.
+    '''
+    def __init__(self, fileName, keywords, batchSize=32, shuffle=True, preprocfunc=None):
+        '''
+        Initialize the H5VGParser. This parser could not be used directly, it requires users to call
+        a split method and get two H5GParsers.
+        '''
+        self.trainSet = H5GParser(fileName, keywords, batchSize, shuffle, preprocfunc, _hasValidator=True)
+        self.validSet = H5GParser(fileName, keywords, batchSize, shuffle, preprocfunc, _hasValidator=True)
+        self.size = self.trainSet.size
+
+    def numberSplit(self, validRate=0.1):
+        '''
+        Split the input set into a train set and a valid set by a specified index.
+        This method would split the original set into two parts by a index. The first
+        part is the train set while the other part is the valid set.
+        Arguments:
+            validRate: the ratio of the samples of the splitted valid set.
+        '''
+        validSize = int(validRate * self.size)
+        if validSize <= 0 or validSize >= self.size:
+            raise ValueError('The validation rate should be in (0.0, 1.0) to ensure that'
+                             'both train set and validation set have more than one sample.')
+        trainSize = self.size - validSize
+        allInd = np.arange(self.size, dtype=np.int)
+        self.trainSet.applyValidator(allInd[:trainSize])
+        self.validSet.applyValidator(allInd[trainSize:])
+
+    def randomSplit(self, validRate=0.1, seed=None):
+        '''
+        Split the input set into a train set and a valid set by random selection.
+        Arguments:
+            validRate: the ratio of the samples of the splitted valid set.
+            seed:      random seed, recommend to specify a number.
+        '''
+        validSize = int(validRate * self.size)
+        if validSize <= 0 or validSize >= self.size:
+            raise ValueError('The validation rate should be in (0.0, 1.0) to ensure that'
+                             'both train set and validation set have more than one sample.')
+        if seed is not None:
+            st = np.random.get_state()
+            np.random.seed(seed)
+        validChoice = np.random.choice(self.size, size=validSize, replace=False, p=None)
+        if seed is not None:
+            np.random.set_state(st)
+        validChoice = np.sort(validChoice)
+        validInd = []
+        trainInd = []
+        s = 0
+        for i in range(self.size):
+            if s < validSize and i == validChoice[s]:
+                s += 1
+                validInd.append(i)
+            else:
+                trainInd.append(i)
+        validInd = np.asarray(validInd, dtype=np.int)
+        trainInd = np.asarray(trainInd, dtype=np.int)
+        self.trainSet.applyValidator(trainInd)
+        self.validSet.applyValidator(validInd)
+
 class H5GParser(tf.keras.utils.Sequence):
     '''Grouply parsing dataset
     This class allows users to feed one .h5 file, and convert it to 
@@ -344,7 +412,7 @@ class H5GParser(tf.keras.utils.Sequence):
             index dataset.
     Certainly, you could use this parser to load a single dataset.
     '''
-    def __init__(self, fileName, keywords, batchSize=32, shuffle=True, preprocfunc=None):
+    def __init__(self, fileName, keywords, batchSize=32, shuffle=True, preprocfunc=None, _hasValidator=False):
         '''
         Create the parser and its h5py file handle.
         Arguments:
@@ -356,6 +424,10 @@ class H5GParser(tf.keras.utils.Sequence):
                          so that it could serve as a pre-processing tool.
                          Note that this tool would process the batches
                          produced by the parser.
+        Reserved arguments:
+            _hasValidator: a flag for existence of a validator, which is
+                           used to a train set and a valid set simultane-
+                           ously. This argument should not be used by user.
         '''
         super(H5GParser, self).__init__()
         self.f = None
@@ -368,13 +440,24 @@ class H5GParser(tf.keras.utils.Sequence):
         self.f = h5py.File(fileName, 'r')
         self.__dsets = self.__creatDataSets()
         self.size = self.__createSize()
-        self.__indices = self.__indexDataset()
+        if not _hasValidator:
+            self.__indices = self.__indexDataset()
         self.shuffle = shuffle
-        if shuffle:
+        if shuffle and (not _hasValidator):
             self.__shuffle()
         self.__preprocfunc = preprocfunc
         self.__batchSize = batchSize
         self.__dsize = len(self.__dsets)
+    
+    def applyValidator(self, validIndices):
+        '''
+        Apply a validator. This method accept indices produced by a validator
+        and apply them to self. This method should not be called by user.
+        '''
+        self.__indices = validIndices
+        self.size = len(validIndices)
+        if self.shuffle:
+            self.__shuffle()
         
     def __len__(self):
         '''

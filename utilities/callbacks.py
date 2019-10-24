@@ -8,13 +8,16 @@
 #   tensorflow r1.13+
 # Extend loss functions. These functions could serve as both
 # losses and metrics.
+# Version: 0.22 # 2019/10/23
+# Comments:
+#   Enable ModelCheckpoint to not save optimizer.
 # Version: 0.20 # 2019/10/15
 # Comments:
 #   Finish LossWeightsScheduler.
 # Version: 0.18 # 2019/6/24
 # Comments:
 # 1. Finish ModelWeightsReducer.
-# 2. Fix bugs for ModelWeightsReducer. 
+# 2. Fix bugs for ModelWeightsReducer.
 # 3. Find a better way for implementing the soft thresholding
 #    for ModelWeightsReducer.
 # Version: 0.16 # 2019/6/23
@@ -22,8 +25,7 @@
 #   Add OptimizerSwitcher and fix a bug.
 # Version: 0.10 # 2019/6/13
 # Comments:
-#   Create this submodule, and finish linear_jaccard_loss
-#   and lovasz_jaccard_loss.
+#   Create this submodule, and finish ModelCheckpoint.
 ################################################################
 '''
 
@@ -298,6 +300,8 @@ class ModelCheckpoint(callbacks.Callback):
             phase. If set None, all files would be kept. This option
             requires users to have the authority to delete files in the 
             saved path.
+        save_optimizer: If `save_optimizer=True`, the optimizer configu-
+            rations would be dumped as a json file.
         save_best_only: if `save_best_only=True`,
             the latest best model according to
             the quantity monitored will not be overwritten.
@@ -321,6 +325,7 @@ class ModelCheckpoint(callbacks.Callback):
                  monitor='val_loss',
                  verbose=0,
                  keep_max=None,
+                 save_optimizer=True,
                  save_best_only=False,
                  save_weights_only=False,
                  mode='auto',
@@ -339,6 +344,7 @@ class ModelCheckpoint(callbacks.Callback):
         else:
             self.__keep_list = None
             self.__current_num = None
+        self.save_optimizer = save_optimizer
         self.save_best_only = save_best_only
         self.save_weights_only = save_weights_only
         self.period = period
@@ -405,7 +411,7 @@ class ModelCheckpoint(callbacks.Callback):
                             self.model.save_weights(weightpath, overwrite=True)
                         else:
                             self.__keep_max_function((weightpath, optmpath))
-                            _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True)
+                            _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True, include_optimizer=self.save_optimizer)
                             #self.model.save(filepath, overwrite=True)
                     else:
                         if self.verbose > 0:
@@ -418,5 +424,5 @@ class ModelCheckpoint(callbacks.Callback):
                     self.model.save_weights(weightpath, overwrite=True)
                 else:
                     self.__keep_max_function((weightpath, optmpath))
-                    _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True)
+                    _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True, include_optimizer=self.save_optimizer)
                     #self.model.save(filepath, overwrite=True)

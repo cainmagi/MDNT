@@ -17,9 +17,9 @@
 '''
 
 # Import sub-modules
-from .h5py import H5HGParser, H5SupSaver, H5GParser, H5GCombiner
+from .h5py import H5HGParser, H5SupSaver, H5GParser, H5GCombiner, H5VGParser
 
-__all__ = ['H5HGParser', 'H5SupSaver', 'H5GParser', 'H5GCombiner']
+__all__ = ['H5HGParser', 'H5SupSaver', 'H5GParser', 'H5GCombiner', 'H5VGParser']
 
 # Set this local module as the prefered one
 from pkgutil import extend_path

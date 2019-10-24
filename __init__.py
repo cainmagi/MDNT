@@ -14,6 +14,13 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version 0.73 # 2019/10/24
+# Comments:
+#   1. Fix a bug for H5GCombiner in .data.
+#   2. Finish H5VGParser in .data.
+#   3. Finish ExpandDims in .layers.
+#   4. Enable ModelCheckpoint in .utilities.callbacks to
+#      support the option for not saving optimizer.
 # Version 0.72 # 2019/10/22
 # Comments:
 #   1. Fix a bug for Ghost in .layers.
@@ -197,7 +204,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.72'
+__version__ = '0.73'
 
 # Alias
 save_model = utilities.save_model
