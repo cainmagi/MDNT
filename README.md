@@ -64,6 +64,11 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.73-b @ 10/27/2019
+
+1. Let `.save_model` support compression.
+2. Revise the optional arguments for `RestrictSub` in `.layers`.
+
 ### 0.73 @ 10/24/2019
 
 1. Fix a bug for `H5GCombiner` in `.data` when adding more parsers.

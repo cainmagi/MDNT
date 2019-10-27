@@ -10,9 +10,12 @@
 # The default tools would be imported directly into the current
 # sub-module. It could be viewed as an extension of basic APIs
 # in this category.
+# Version: 0.31 # 2019/10/27
+# Comments:
+#   Let save_model support compression.
 # Version: 0.30 # 2019/10/15
 # Comments:
-#   Let save_model and load_model supports storing/recovering
+#   Let save_model and load_model support storing/recovering
 #   variable loss weights.
 # Version: 0.26 # 2019/6/16
 # Comments:
@@ -59,7 +62,7 @@ try:
 except ImportError:
     h5py = None
 
-def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, include_optimizer=True):
+def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, include_optimizer=True, compress=True):
     """Saves a model to two JSON files and a HDF5 file
     The saved model would be divided into three parts. In the first part,
     i.e. the JSON file, there are:
@@ -202,7 +205,7 @@ def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, in
 
         model_weights_group = f.create_group('model_weights')
         model_layers = model.layers
-        save_weights_to_hdf5_group(model_weights_group, json_dict, model_layers)
+        save_weights_to_hdf5_group(model_weights_group, json_dict, model_layers, compress=compress)
 
         if include_optimizer and model.optimizer:
             if isinstance(model.optimizer, optimizers.TFOptimizer):
@@ -233,7 +236,7 @@ def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, in
 
                 # Save loss weights
                 loss_weights_group = f.create_group('loss_weights')
-                save_loss_weights_to_hdf5_group(loss_weights_group, json_optm_dict, model.loss_weights)
+                save_loss_weights_to_hdf5_group(loss_weights_group, json_optm_dict, model.loss_weights, compress=compress)
 
                 # Save optimizer weights.
                 symbolic_weights = getattr(model.optimizer, 'weights')
@@ -486,16 +489,18 @@ def load_model(filepath, headpath=None, optmpath=None, custom_objects=None, comp
                 fo.close()
     return model
 
-def save_weights_to_hdf5_group(f, fh_dict, layers):
+def save_weights_to_hdf5_group(f, fh_dict, layers, compress=False):
     """Saves the weights of a list of layers to a HDF5 group.
     This is revised version. We split the attributes of HDF5 group into another
     JSON file to avoid the heading memory excessing problem. Compared to original
     Keras API, we need to load an extra file IO handle, fh_dict.
     Arguments:
-        f:       HDF5 group.
-        fh_dict: JSON config dictionary.
-        layers:  a list of layer instances.
+        f:        HDF5 group.
+        fh_dict:  JSON config dictionary.
+        layers:   a list of layer instances.
+        compress: whether to compress the weights.
     """
+    compression = 'gzip' if compress else None
     save_attributes_to_hdf5_group(
             fh_dict, f.name, 'layer_names', [layer.name for layer in layers])
 
@@ -512,7 +517,7 @@ def save_weights_to_hdf5_group(f, fh_dict, layers):
             weight_names.append(name)
         save_attributes_to_hdf5_group(fh_dict, g.name, 'weight_names', weight_names)
         for name, val in zip(weight_names, weight_values):
-            param_dset = g.create_dataset(name, val.shape, dtype=val.dtype)
+            param_dset = g.create_dataset(name, val.shape, dtype=val.dtype, compression=compression)
             if not val.shape:
                 # scalar
                 param_dset[()] = val
@@ -620,7 +625,7 @@ def load_attributes_from_hdf5_group(fh_dict, group_name, name):
     gp = gp_entry[group_name]
     return gp[name]
 
-def save_loss_weights_to_hdf5_group(f, fh_dict, loss_weights):
+def save_loss_weights_to_hdf5_group(f, fh_dict, loss_weights, compress=False):
     """Implements loss weight saving.
     This is the extension for implementing the saving session for loss
     weights. It will enable the save_model to save loss weights if they
@@ -628,12 +633,14 @@ def save_loss_weights_to_hdf5_group(f, fh_dict, loss_weights):
     hdf5 file and in the configuration, the variables are tagged by their
     names.
     Arguments:
-        f:       a pointer to a HDF5 loss weights group.
-        fh_dict: JSON config dictionary.
+        f:            a pointer to a HDF5 loss weights group.
+        fh_dict:      JSON config dictionary.
         loss_weights: a list, or dictionary of loss weights.
+        compress:     whether to compress the weights.
     Raises:
         ValueError: if the loss_weights is not list, tuple or dict.
     """
+    compression = 'gzip' if compress else None
     cfg_entry = fh_dict['training_config']
     if loss_weights is None: # In None case, the 
         cfg_entry['loss_weights'] = None
@@ -678,7 +685,7 @@ def save_loss_weights_to_hdf5_group(f, fh_dict, loss_weights):
     # Dump variables into hdf5 set.
     weight_values = K.batch_get_value(symbolic_weights)
     for name, val in zip(weight_names, weight_values):
-        param_dset = f.create_dataset(name, val.shape, dtype=val.dtype)
+        param_dset = f.create_dataset(name, val.shape, dtype=val.dtype, compression=compression)
         if not val.shape:
             # scalar
             param_dset[()] = val

@@ -14,6 +14,11 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.73-b # 2019/10/27
+# Comments:
+#   1. Let save_model support compression.
+#   2. Revise the optional arguments for RestrictSub in
+#      .layers.
 # Version 0.73 # 2019/10/24
 # Comments:
 #   1. Fix a bug for H5GCombiner in .data.
@@ -27,7 +32,7 @@
 #   2. Finish Slice, Restrict and RestrictSub in .layers.
 # Version 0.70 # 2019/10/15
 # Comments:
-#   1. Let save_model/load_model supports storing/recovering
+#   1. Let save_model/load_model support storing/recovering
 #      variable loss weights.
 #   2. Finish LossWeightsScheduler in .utilities.callbacks.
 # Version 0.69-b # 2019/10/7
@@ -204,7 +209,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.73'
+__version__ = '0.73-b'
 
 # Alias
 save_model = utilities.save_model

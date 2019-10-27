@@ -8,6 +8,9 @@
 #   tensorflow r1.13+
 # Extend loss functions. These functions could serve as both
 # losses and metrics.
+# Version: 0.23 # 2019/10/27
+# Comments:
+#   Enable ModelCheckpoint to use compression to save models.
 # Version: 0.22 # 2019/10/23
 # Comments:
 #   Enable ModelCheckpoint to not save optimizer.
@@ -305,6 +308,8 @@ class ModelCheckpoint(callbacks.Callback):
         save_best_only: if `save_best_only=True`,
             the latest best model according to
             the quantity monitored will not be overwritten.
+        compress: whether to apply the compression for saving models.
+            this option is only avaliable when save_weights_only=False.
         mode: one of {auto, min, max}.
             If `save_best_only=True`, the decision
             to overwrite the current save file is made
@@ -328,6 +333,7 @@ class ModelCheckpoint(callbacks.Callback):
                  save_optimizer=True,
                  save_best_only=False,
                  save_weights_only=False,
+                 compress=True,
                  mode='auto',
                  period=1):
         super(ModelCheckpoint, self).__init__()
@@ -411,7 +417,7 @@ class ModelCheckpoint(callbacks.Callback):
                             self.model.save_weights(weightpath, overwrite=True)
                         else:
                             self.__keep_max_function((weightpath, optmpath))
-                            _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True, include_optimizer=self.save_optimizer)
+                            _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True, include_optimizer=self.save_optimizer, compress=compress)
                             #self.model.save(filepath, overwrite=True)
                     else:
                         if self.verbose > 0:
@@ -424,5 +430,5 @@ class ModelCheckpoint(callbacks.Callback):
                     self.model.save_weights(weightpath, overwrite=True)
                 else:
                     self.__keep_max_function((weightpath, optmpath))
-                    _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True, include_optimizer=self.save_optimizer)
+                    _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True, include_optimizer=self.save_optimizer, compress=compress)
                     #self.model.save(filepath, overwrite=True)

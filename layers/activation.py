@@ -8,6 +8,10 @@
 #   tensorflow r1.13+
 # Extend the activation layer APIs. It allows more useful
 # functions for building a complicated network.
+# Version: 0.17 # 2019/10/27
+# Comments:
+#   Remove the "c" variable (slack variable) for RestrictSub,
+#   because this variable is useless.
 # Version: 0.16 # 2019/10/23
 # Comments:
 #   Finish the ExpandDims layer.
@@ -85,12 +89,11 @@ class RestrictSub(Layer):
     is used for restricting the sum of outputs in a specified range. Consider
     x_i is the ith slice along the last dimension, the restrict-sub operation
     could be formulated as
-        `y_i = l + (h - l) * softmax(a * x + b, c)_i`
-    where
-        `softmax(x, c) = exp(x) / ( sum(exp(x)) + c^2 )`
-    `a` and `b` are learnable vectors while `c` is a learnable scalar. The 
-    range of `y_i` would be restricted in `(l_i, h_i)`. Notice that there 
-    should be `l < h`.
+        `y_i = l + (h - l) * softmax(a * x + b)_i`
+    `a` and `b` are learnable vectors. The  range of `y_i` would be restricted
+    in `(l_i, h_i)`. Notice that there should be `l < h`.
+    It is suggest to let `x` has N+1 length if you want to predict N-length
+    values, because one element should be reserved as "blank area".
     Since the sum satisfies `0 < sum_i(softmax(x, c)) < 1`, this operation
     would ensure that the sum of outputs to be limited in (l, h).
     Arguments:
@@ -107,7 +110,6 @@ class RestrictSub(Layer):
                 `y_{i-1} = y_i + l + (h - l) * softmax(a * x + b, c)_i`
                 the lower bound `l` requires to be >=0.
             `n`: Do not apply cumsum scheme.
-        with_c: Whether to use denominator slack variable.
         a_initializer: Initializer for the a weight.
         b_initializer: Initializer for the b weight.
         c_initializer: Initializer for the c weight.
@@ -128,16 +130,12 @@ class RestrictSub(Layer):
                  low_bound,
                  sup_bound,
                  with_sum='n',
-                 with_c=True,
                  a_initializer='ones',
                  a_regularizer=None,
                  a_constraint=None,
                  b_initializer='zeros',
                  b_regularizer=None,
                  b_constraint=None,
-                 c_initializer='zeros',
-                 c_regularizer=None,
-                 c_constraint=None,
                  **kwargs):
         if 'input_shape' not in kwargs and 'input_dim' in kwargs:
           kwargs['input_shape'] = (kwargs.pop('input_dim'),)
@@ -154,13 +152,6 @@ class RestrictSub(Layer):
         self.b_initializer = initializers.get(b_initializer)
         self.b_regularizer = regularizers.get(b_regularizer)
         self.b_constraint = constraints.get(b_constraint)
-        self.with_c = with_c
-        if with_c:
-            self.c_initializer = initializers.get(c_initializer)
-            self.c_regularizer = regularizers.get(c_regularizer)
-            self.c_constraint = constraints.get(c_constraint)
-        else:
-            self.c_initializer, self.c_regularizer, self.c_constraint = None, None, None
         self.supports_masking = True
 
     def build(self, input_shape):
@@ -185,15 +176,6 @@ class RestrictSub(Layer):
             constraint=self.b_constraint,
             dtype=self.dtype,
             trainable=True)
-        if self.with_c:
-            self.get_c = self.add_weight(
-                'c',
-                shape=(1,),
-                initializer=self.c_initializer,
-                regularizer=self.c_regularizer,
-                constraint=self.c_constraint,
-                dtype=self.dtype,
-                trainable=True)
         super(RestrictSub, self).build(input_shape)
 
     def call(self, inputs):
@@ -205,12 +187,7 @@ class RestrictSub(Layer):
         broadcast_b = K.reshape(self.get_b, broadcast_shape)
         broadcast_l = K.constant(self.low_bound, dtype=self.dtype)
         broadcast_s = K.constant(self.sup_bound - self.low_bound, dtype=self.dtype)
-        if self.with_c:
-            y_exp = gen_math_ops.exp(broadcast_a * inputs + broadcast_b)
-            y_sum = math_ops.reduce_sum(y_exp, axis=-1, keepdims=True) + gen_math_ops.square(self.get_c)
-            y = y_exp / y_sum
-        else:
-            y = nn_ops.softmax(broadcast_a * inputs + broadcast_b, axis=-1)
+        y = nn_ops.softmax(broadcast_a * inputs + broadcast_b, axis=-1)
         if self.with_sum == 'i':
             y = math_ops.cumsum(y, axis=-1)
         elif self.with_sum == 'd':
@@ -225,16 +202,12 @@ class RestrictSub(Layer):
             'low_bound': self.low_bound,
             'sup_bound': self.sup_bound,
             'with_sum': self.with_sum,
-            'with_c': self.with_c,
             'a_initializer': initializers.serialize(self.a_initializer),
             'a_regularizer': regularizers.serialize(self.a_regularizer),
             'a_constraint': constraints.serialize(self.a_constraint),
             'b_initializer': initializers.serialize(self.b_initializer),
             'b_regularizer': regularizers.serialize(self.b_regularizer),
-            'b_constraint': constraints.serialize(self.b_constraint),
-            'c_initializer': initializers.serialize(self.c_initializer),
-            'c_regularizer': regularizers.serialize(self.c_regularizer),
-            'c_constraint': constraints.serialize(self.c_constraint)
+            'b_constraint': constraints.serialize(self.b_constraint)
         }
         base_config = super(RestrictSub, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
