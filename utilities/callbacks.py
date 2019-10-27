@@ -353,6 +353,7 @@ class ModelCheckpoint(callbacks.Callback):
         self.save_optimizer = save_optimizer
         self.save_best_only = save_best_only
         self.save_weights_only = save_weights_only
+        self.compress = compress
         self.period = period
         self.epochs_since_last_save = 0
 
@@ -417,7 +418,7 @@ class ModelCheckpoint(callbacks.Callback):
                             self.model.save_weights(weightpath, overwrite=True)
                         else:
                             self.__keep_max_function((weightpath, optmpath))
-                            _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True, include_optimizer=self.save_optimizer, compress=compress)
+                            _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True, include_optimizer=self.save_optimizer, compress=self.compress)
                             #self.model.save(filepath, overwrite=True)
                     else:
                         if self.verbose > 0:
@@ -430,5 +431,5 @@ class ModelCheckpoint(callbacks.Callback):
                     self.model.save_weights(weightpath, overwrite=True)
                 else:
                     self.__keep_max_function((weightpath, optmpath))
-                    _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True, include_optimizer=self.save_optimizer, compress=compress)
+                    _default.save_model(self.model, weightpath, configpath, optmpath, overwrite=True, include_optimizer=self.save_optimizer, compress=self.compress)
                     #self.model.save(filepath, overwrite=True)
