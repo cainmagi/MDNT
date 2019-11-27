@@ -12,8 +12,9 @@
 # tion for launching the web interface.
 # Version: 0.20 # 2019/11/27
 # Comments:
-#   Finish TensorLogHandle. It may be updated in future
-#   versions.
+#   1. Finish TensorLogHandle. It may be updated in future
+#      versions.
+#   2. Fix a minor bug for TensorLogHandle.tohdf5.
 # Version: 0.10 # 2019/11/26
 # Comments:
 #   Create this submodule and finish TensorBoardTool, launch.
@@ -304,16 +305,21 @@ class TensorLogHandle:
             event_accumulator.COMPRESSED_HISTOGRAMS):
             raise ValueError('Your current mode is {0}, this type does'
                              'not support HDF5 conversion.'.format(mode))
-        if isinstance(f, str):
+        holdF = isinstance(f, str)
+        if holdF:
             f = os.path.splitext(f)[0] + '.h5'
             f = h5py.File(f, 'w')
-        name = f.filename
+        try:
+            name = f.filename
+        except AttributeError:
+            name = f.name
         f.attrs['type'] = mode
         for k, v in self.items():
             g = f.create_group(k)
             self.__recursive_writer(g=g, obj=v, compressed=compressed)
             print('Having dumped {0}.'.format(k))
-        f.close()
+        if holdF:
+            f.close()
         print('Having dumped the data {0} successfully.'.format(name))
         
     @classmethod
