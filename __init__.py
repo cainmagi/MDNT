@@ -14,6 +14,15 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.78 # 2019/11/27
+# Comments:
+#   1. Enhance the save_model/load_model for supportting
+#      storing/recovering customized loss/metric class.
+#   2. Finish the submodule .utilities.draw for providing
+#      extended visualizations.
+#   3. Finish the submodule .utilities.tboard for providing
+#      extended tensorboard interfaces.
+#   4. Fix some bugs.
 # Version: 0.73-b # 2019/10/27
 # Comments:
 #   1. Let save_model support compression.

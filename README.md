@@ -56,13 +56,21 @@ Now we have such progress on the semi-product:
     - [x] LossWeightsScheduler callback (for changing the loss weights during the training).
     - [x] OptimizerSwitcher callback (for using manually switched optimizers).
     - [x] ModelWeightsReducer callback (parameter decay strategy including L1 decay and L2 decay).
-    - [ ] Extended data visualization tools.
+    - [x] Extended data visualization tools.
+    - [x] Tensorboard log file parser.
 
 ## Demos
 
 Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
+
+### 0.78 @ 11/27/2019
+
+1. Enhance the `save_model`/`load_model` for supportting storing/recovering customized loss/metric class.
+2. Finish the submodule `.utilities.draw` for providing extended visualizations.
+3. Finish the submodule `.utilities.tboard` for providing extended tensorboard interfaces.
+4. Fix some bugs.
 
 ### 0.73-b @ 10/27/2019
 

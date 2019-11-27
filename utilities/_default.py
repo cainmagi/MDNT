@@ -10,6 +10,13 @@
 # The default tools would be imported directly into the current
 # sub-module. It could be viewed as an extension of basic APIs
 # in this category.
+# Version: 0.35 # 2019/11/27
+# Comments:
+#   1. Fix a bug for checking the existence of the file when
+#      saving a new model.
+#   2. Fix a bug when saving repeated symbolic weights.
+#   3. Enable save_model and load_model to support storing/
+#      recovering a customized loss/metric function.
 # Version: 0.31 # 2019/10/27
 # Comments:
 #   Let save_model support compression.
@@ -43,6 +50,7 @@ from tensorflow.python.ops import variables
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import optimizers
 from tensorflow.python.keras.utils.io_utils import ask_to_proceed_with_overwrite
+from tensorflow.python.keras.utils.generic_utils import deserialize_keras_object
 from tensorflow.python.keras.engine.saving import model_from_config, preprocess_weights_for_loading
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import serialization
@@ -118,14 +126,15 @@ def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, in
     # Examine the file existence and open the HDF5 file.
     if not isinstance(filepath, h5py.File):
         # If file exists and should not be overwritten.
-        if not overwrite and os.path.isfile(filepath):
+        filepath_nopsfx = os.path.splitext(filepath)[0]
+        psfx = os.path.splitext(filepath)[1].casefold()
+        if (psfx != '.h5') and (psfx != '.hdf5'):
+            filepath = filepath_nopsfx + '.h5'
+        if (not overwrite) and (os.path.isfile(filepath)):
             proceed = ask_to_proceed_with_overwrite(filepath)
             if not proceed:
                 return
-
-        psfx = os.path.splitext(filepath)[1].casefold()
-        if (psfx != '.h5') and (psfx != '.hdf5'):
-            filepath = filepath + '.h5'
+                
         f = h5py.File(filepath, mode='w')
         opened_new_file = True
     else:
@@ -152,7 +161,7 @@ def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, in
     # Examine the file existence and open the JSON file.
     if not isinstance(headpath, io.IOBase):
         # If file exists and should not be overwritten.
-        if not overwrite and os.path.isfile(headpath):
+        if (not overwrite) and os.path.isfile(headpath):
             proceed = ask_to_proceed_with_overwrite(headpath)
             if not proceed:
                 return
@@ -178,7 +187,7 @@ def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, in
         # Examine the file existence and open the JSON file.
         if not isinstance(optmpath, io.IOBase):
             # If file exists and should not be overwritten.
-            if not overwrite and os.path.isfile(optmpath):
+            if (not overwrite) and os.path.isfile(optmpath):
                 proceed = ask_to_proceed_with_overwrite(optmpath)
                 if not proceed:
                     return
@@ -333,6 +342,12 @@ def load_model(filepath, headpath=None, optmpath=None, custom_objects=None, comp
                 deserialized.append(convert_custom_objects(value))
             return deserialized
         if isinstance(obj, dict):
+            if ('class_name' in obj) and (obj['class_name'] in custom_objects):
+                return deserialize_keras_object(
+                    obj,
+                    module_objects=globals(),
+                    custom_objects=custom_objects,
+                    printable_module_name='loss function')
             deserialized = {}
             for key, value in obj.items():
                 deserialized[key] = convert_custom_objects(value)
@@ -660,8 +675,9 @@ def save_loss_weights_to_hdf5_group(f, fh_dict, loss_weights, compress=False):
                     name = 'loss_param_' + str(i)
                     i += 1
                 serialized.append(name)
-                weight_names.append(name)
-                symbolic_weights.append(value)
+                if value not in symbolic_weights:
+                    weight_names.append(name)
+                    symbolic_weights.append(value)
             else:
                 serialized.append(value)
     elif isinstance(loss_weights, dict):
@@ -674,8 +690,9 @@ def save_loss_weights_to_hdf5_group(f, fh_dict, loss_weights, compress=False):
                     name = 'loss_param_' + str(i)
                     i += 1
                 serialized[key] = name
-                weight_names.append(name)
-                symbolic_weights.append(value)
+                if value not in symbolic_weights:
+                    weight_names.append(name)
+                    symbolic_weights.append(value)
             else:
                 serialized[key] = value
     else:

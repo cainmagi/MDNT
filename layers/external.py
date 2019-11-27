@@ -8,6 +8,9 @@
 #   tensorflow r1.13+
 # An abstract utility for introducing the outside API into the
 # tf-keras architecture.
+# Version: 0.25 # 2019/11/27
+# Comments:
+#   Fix a bug for 'External' when having multiple inputs.
 # Version: 0.20 # 2019/5/23
 # Comments:
 #   Add class 'External' to this submodule.
@@ -21,7 +24,9 @@ from tensorflow.python.framework import ops
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.framework import dtypes
 from tensorflow.python.keras import activations
+from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.engine.base_layer import Layer
+from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import script_ops
 from tensorflow.python.ops import custom_gradient
 from tensorflow.python.keras.utils import tf_utils
@@ -153,6 +158,23 @@ class PyExternal(Layer):
                     tensor_shape.TensorShape(single_shape) for single_shape in shape
                 ]
         return tensor_shape.TensorShape(shape)
+
+    def compute_mask(self, inputs, mask=None):
+        if mask is None:
+            return None
+        if (not isinstance(inputs, list)) and (not isinstance(mask, list)):
+            return super(PyExternal, self).compute_mask(inputs=inputs, mask=mask)
+        if not isinstance(mask, list):
+            raise ValueError('`mask` should be a list.')
+        if not isinstance(inputs, list):
+            raise ValueError('`inputs` should be a list.')
+        if len(mask) != len(inputs):
+            raise ValueError('The lists `inputs` and `mask` '
+                             'should have the same length.')
+        if all(m is None for m in mask):
+            return None
+        masks = [array_ops.expand_dims(m, axis=0) for m in mask if m is not None]
+        return K.all(K.concatenate(masks, axis=0), axis=0, keepdims=False)
     
     def get_config(self):
         config = {

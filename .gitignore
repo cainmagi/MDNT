@@ -1,7 +1,10 @@
 # Datafiles
-checkpoints/
-logs/
+/checkpoints/
+/logs/
 *.h5
+
+# vscode
+/.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
