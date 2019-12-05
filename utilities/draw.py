@@ -10,6 +10,10 @@
 # Extended figure drawing tools. This module is based on
 # matplotlib and provides some fast interfacies for drawing
 # some specialized figures (like loss function).
+# Version: 0.25 # 2019/12/05
+# Comments:
+#   1. Finish plot_distribution_curves.
+#   2. Fix some bugs.
 # Version: 0.20 # 2019/11/26
 # Comments:
 #   Finish plot_scatter, plot_training_records and
@@ -35,6 +39,7 @@ class setFigure(object):
             could be referred here:
             https://matplotlib.org/3.1.1/gallery/style_sheets/style_sheets_reference.html
         font_size: the local font size for the decorated function.
+        use_tex: whether to use LaTeX backend for the output figure.
     An example is
     ```python
         @mdnt.utilities.draw.setFigure(font_size=12)
@@ -42,9 +47,10 @@ class setFigure(object):
             ...
     ```
     '''
-    def __init__(self, style=None, font_size=None):
+    def __init__(self, style=None, font_size=None, use_tex=None):
         self.style = style
         self.font_size = font_size
+        self.use_tex = use_tex
 
     def font_wrapped(self, foo, *args, **kwargs):
         if self.font_size:
@@ -65,6 +71,29 @@ class setFigure(object):
             res = foo(*args, **kwargs)
         return res
 
+    def tex_wrapped(self, foo, *args, **kwargs):
+        if self.use_tex is not None:
+            restore = dict()
+            useafm = mpl.rcParams.get('ps.useafm', None)
+            if useafm is not None:
+                restore['ps.useafm'] = useafm
+            use14corefonts = mpl.rcParams.get('pdf.use14corefonts', None)
+            if use14corefonts is not None:
+                restore['pdf.use14corefonts'] = use14corefonts
+            usetex = mpl.rcParams.get('text.usetex', None)
+            if usetex is not None:
+                restore['text.usetex'] = usetex
+            mpl.rcParams['ps.useafm'] = self.use_tex
+            mpl.rcParams['pdf.use14corefonts'] = self.use_tex
+            mpl.rcParams['text.usetex'] = self.use_tex
+        try:
+            res = foo(*args, **kwargs)
+        finally:
+            if self.use_tex is not None:
+                for k, v in restore:
+                    mpl.rcParams[k] = v
+        return res
+
     @staticmethod
     def func_wrapper(foo, wrapped_func):
         def feed_func(*args, **kwargs):
@@ -75,7 +104,8 @@ class setFigure(object):
         @functools.wraps(foo)
         def inner_func(*args, **kwargs):
             foo_font_size = self.func_wrapper(foo, self.font_wrapped)
-            foo_style     = self.func_wrapper(foo_font_size, self.style_wrapped)
+            foo_tex       = self.func_wrapper(foo_font_size, self.tex_wrapped)
+            foo_style     = self.func_wrapper(foo_tex, self.style_wrapped)
             return foo_style(*args, **kwargs)
         return inner_func
 
@@ -287,7 +317,8 @@ def plot_training_records(gen,
                           xlabel=None, ylabel='value',
                           x_mark_num=None, y_log=False,
                           figure_size=(6, 5.5),
-                          legend_loc=None
+                          legend_loc=None,
+                          legend_col=None,
                          ):
     '''Plot a scatter graph for multiple data groups.
     Arguments:
@@ -301,8 +332,9 @@ def plot_training_records(gen,
         y_log: whether to convert the y axis into the log repre-
             sentation.
         figure_size: the size of the output figure.
-        legend_loc:  the localtion of the legend. (The legend
+        legend_loc: the localtion of the legend. (The legend
             only works when passing `label` to each iteration)
+        legend_col: the column of the legend.
     '''
     # Get iterators
     cit = itertools.cycle(mpl.rcParams['axes.prop_cycle'])
@@ -380,7 +412,7 @@ def plot_training_records(gen,
         plt.gcf().set_size_inches(*figure_size)
     plt.tight_layout(rect=[0.03, 0, 0.97, 1])
     if hasLabel:
-        plt.legend( loc =legend_loc, labelspacing=0. )
+        plt.legend( loc =legend_loc, labelspacing=0., ncol=legend_col )
 
 def plot_error_curves(gen, x_error_num=10,
                       y_error_method='std', plot_method='error',
@@ -418,6 +450,7 @@ def plot_error_curves(gen, x_error_num=10,
         plt.yscale('log')
     # Begin to parse data
     hasLabel = False
+    kwargs = dict()
     for data in gen:
         c, m = next(cit), next(mit)
         x = None
@@ -453,6 +486,102 @@ def plot_error_curves(gen, x_error_num=10,
         else:
             error_every = len(x) // x_error_num
             plt.errorbar(x, avg, yerr=geterr, errorevery=error_every, marker=m, ms=5, markevery=error_every, **kwargs)
+    if ylabel:
+        plt.ylabel(ylabel)
+    if xlabel:
+        plt.xlabel(xlabel)
+    if figure_size:
+        plt.gcf().set_size_inches(*figure_size)
+    plt.tight_layout(rect=[0.03, 0, 0.97, 1])
+    if hasLabel:
+        plt.legend( loc =legend_loc, labelspacing=0. )
+
+def plot_distribution_curves(gen, method='mean', level=3, outlier=0.1,
+                             xlabel=None, ylabel='value',
+                             y_log=False,
+                             figure_size=(6, 5.5),
+                             legend_loc=None
+                            ):
+    '''Plot lines with multi-level distribution for multiple data groups.
+    This function has similar meaning of plot_error_curves. It is
+    used for compressing the time-series histograms. Its output is
+    similar to tensorboard.distribution.
+    Arguments:
+        gen: a sample generator, each "yield" returns a sample. It
+            allows users to provide an extra kwargs dict for each
+            iteration. For each iteration it returns 1D + 2D arrays,
+            or a single 2D array.
+        method: the method for calculating curves, use 'mean' or 
+            'middle'.
+        level: the histogram level.
+        outlier: outlier proportion, this part would be thrown when
+            drawing the figures.
+        xlabel: the x axis label.
+        ylabel: the y axis label.
+        y_log: whether to convert the y axis into the log repre-
+            sentation.
+        figure_size: the size of the output figure.
+        legend_loc:  the localtion of the legend. (The legend
+            only works when passing `label` to each iteration)
+    '''
+    if level < 1:
+        raise TypeError('Histogram level should be at least 1.')
+    if method not in ('mean', 'middle'):
+        raise TypeError('The curve calculation method should be either \'mean\' or \'middle\'.')
+    # Get iterators
+    cit = itertools.cycle(mpl.rcParams['axes.prop_cycle'])
+    mit = itertools.cycle(['o', '^', 's', 'd', '*', 'P'])
+    # Set scale
+    if y_log:
+        plt.yscale('log')
+    # Begin to parse data
+    hasLabel = False
+    kwargs = dict()
+    for data in gen:
+        c, m = next(cit), next(mit)
+        x = None
+        if isinstance(data, (tuple, list)):
+            if isinstance(data[-1], dict):
+                *data, kwargs = data
+            if len(data) == 2: # 4 1D data tuple.
+                x, data = data
+            elif len(data) == 1:
+                data = data[0]
+            else:
+                raise ValueError('The input data list is invalid, it should'
+                                 'contain 1D + 2D array or a 2D array.')
+        if data.ndim == 2:
+            if x is None:
+                x = np.arange(0, len(data))
+            v = data
+            getValue = True
+        else:
+            raise ValueError('The input data list is invalid, it should'
+                                'contain 1D + 2D array or a 2D array.')
+        hasLabel = 'label' in kwargs
+        kwargs.update(c)
+        vsort = np.sort(v, axis=1)
+        N = v.shape[1]
+        if method == 'middle':
+            avg = vsort[:, N//2]
+        else:
+            avg = np.mean(v, axis=1)    
+        # Calculate ranges according to levels:
+        vu, vd = [], []
+        for i in range(level):
+            if method == 'middle':
+                pos = max(1, int(np.round((outlier + (1-outlier)*((i-1)/level))*N)+0.1)), max(1, int(np.round((outlier + (1-outlier)*(i/level))*N)+0.1))
+                vd.append(np.mean(vsort[:, pos[0]:pos[1]], axis=1))
+                vu.append(np.mean(vsort[:, (-pos[1]):(-pos[0])], axis=1))
+            else:
+                pos = max(1, int(np.round((outlier + (1-outlier)*(i/level))*N)+0.1))
+                vd.append(np.mean(vsort[:, :pos], axis=1))
+                vu.append(np.mean(vsort[:, (-pos):], axis=1))
+        # Draw distributions
+        mark_every = np.round(np.linspace(0, len(x)-1, 10)).astype(np.int).tolist()
+        plt.plot(x, avg, marker=m, ms=7, markevery=mark_every, **kwargs)
+        for i in range(level):
+            plt.fill_between(x, vd[i], vu[i], alpha=0.2, color=c['color'])
     if ylabel:
         plt.ylabel(ylabel)
     if xlabel:
@@ -551,9 +680,26 @@ if __name__ == '__main__':
                 xlabel='Step', ylabel=r'$\mathcal{L}$')
         plt.show()
 
+    @setFigure(style='classic', font_size=16)
+    def test_distribution():
+        def func_gen():
+            size = 100
+            x = np.arange(start=0, stop=size)
+            for i in range(1):
+                begin = 1 + 99.0 * np.random.rand()
+                end = 2 + 10 * np.random.rand()
+                exp_v = np.square((x-size)/size)-1.0
+                exp_vnoise = np.random.normal(0.0, np.expand_dims((size-x)/(10*size), axis=-1), (size, 50))
+                v = begin * np.exp((np.expand_dims(exp_v, axis=-1)+exp_vnoise)*end)
+                yield x, v, {'label': r'$x_{' + str(i+1) + r'}$'}
+        plot_distribution_curves(func_gen(), method='mean', level=5, outlier=0.05,
+                                 xlabel='Step', ylabel=r'$\mathcal{L}$',
+                                 y_log=True)
+        plt.show()
+
     test_plot_hist()
     test_plot_bar()
     test_scatter()
     test_training_records()
     test_error_bar()
-    
+    test_distribution()

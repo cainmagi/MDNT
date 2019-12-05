@@ -14,6 +14,10 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.78-b # 2019/12/05
+# Comments:
+#   1. Fix some bugs and add features in .utilities.draw.
+#   2. Add webfiles.zip for .utilities.tboard.
 # Version: 0.78 # 2019/11/27
 # Comments:
 #   1. Enhance the save_model/load_model for supportting

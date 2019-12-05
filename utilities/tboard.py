@@ -10,6 +10,10 @@
 # It enables users to extract records from tensorboard without
 # launching the web interface. It also provides a python func-
 # tion for launching the web interface.
+# Version: 0.22 # 2019/12/05
+# Comments:
+#   1. Minor change for provdiding verbose option to
+#      TensorLogHandle.tohdf5.
 # Version: 0.20 # 2019/11/27
 # Comments:
 #   1. Finish TensorLogHandle. It may be updated in future
@@ -288,7 +292,7 @@ class TensorLogHandle:
             resDict[k] = np.asarray(v, dtype=np.float32)
         return resDict
 
-    def tohdf5(self, f, mode=None, compressed=True):
+    def tohdf5(self, f, mode=None, compressed=True, verbose=1):
         '''Convert all data in a specific mode to HDF5 format.
         Arguments:
             f: a file path (would create a new file).
@@ -297,6 +301,8 @@ class TensorLogHandle:
             mode: the selected mode, if left None, would use the
                 default mode.
             compressed: whether to apply the compression.
+            verbose: The level for showing messages during the
+                conversion.
         '''
         if mode is None:
             mode = self.__curMode
@@ -317,10 +323,12 @@ class TensorLogHandle:
         for k, v in self.items():
             g = f.create_group(k)
             self.__recursive_writer(g=g, obj=v, compressed=compressed)
-            print('Having dumped {0}.'.format(k))
+            if verbose > 0:
+                print('Having dumped {0}.'.format(k))
         if holdF:
             f.close()
-        print('Having dumped the data {0} successfully.'.format(name))
+        if verbose > 0:
+            print('Having dumped the data {0} successfully.'.format(name))
         
     @classmethod
     def __recursive_writer(cls, g, obj, compressed=True):
@@ -341,7 +349,7 @@ class TensorLogHandle:
         if isinstance(v, (int, float)):
             g.create_dataset(k, data=float(v), dtype=np.float32)
         elif isinstance(v, np.ndarray):
-            g.create_dataset(k, data=v, dtype=np.float32, chunks=(v.ndim>1), compression=compression)
+            g.create_dataset(k, data=v, dtype=np.float32, chunks=((v.ndim>1) or compressed), compression=compression, maxshape=(None, *v.shape[1:]))
         elif isinstance(v, (dict, list, tuple)):
             newg = g.create_group(k)
             cls.__recursive_writer(newg, obj=v, compressed=compressed)

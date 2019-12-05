@@ -65,6 +65,11 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.78-b @ 12/05/2019
+
+1. Fix some bugs and add features in `.utilities.draw`.
+2. Add `webfiles.zip` for `.utilities.tboard`.
+
 ### 0.78 @ 11/27/2019
 
 1. Enhance the `save_model`/`load_model` for supportting storing/recovering customized loss/metric class.
