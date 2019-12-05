@@ -412,7 +412,12 @@ def plot_training_records(gen,
         plt.gcf().set_size_inches(*figure_size)
     plt.tight_layout(rect=[0.03, 0, 0.97, 1])
     if hasLabel:
-        plt.legend( loc =legend_loc, labelspacing=0., ncol=legend_col )
+        kwargs=dict()
+        if legend_col is not None:
+            kwargs['ncol'] = legend_col
+        if legend_loc is not None:
+            kwargs['loc'] = legend_loc
+        plt.legend( labelspacing=0., **kwargs )
 
 def plot_error_curves(gen, x_error_num=10,
                       y_error_method='std', plot_method='error',
