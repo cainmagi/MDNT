@@ -249,6 +249,7 @@ def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, in
 
                 # Save optimizer weights.
                 symbolic_weights = getattr(model.optimizer, 'weights')
+                compression = 'gzip' if compress else None
                 if symbolic_weights:
                     optimizer_weights_group = f.create_group('optimizer_weights')
                     weight_values = K.batch_get_value(symbolic_weights)
@@ -259,7 +260,7 @@ def save_model(model, filepath, headpath=None, optmpath=None, overwrite=True, in
                     save_attributes_to_hdf5_group(json_dict, optimizer_weights_group.name, 'weight_names', weight_names)
                     for name, val in zip(weight_names, weight_values):
                         param_dset = optimizer_weights_group.create_dataset(
-                                name, val.shape, dtype=val.dtype)
+                                name, val.shape, dtype=val.dtype, compression=(compression if val.shape else None))
                         if not val.shape:
                             # scalar
                             param_dset[()] = val
@@ -532,7 +533,7 @@ def save_weights_to_hdf5_group(f, fh_dict, layers, compress=False):
             weight_names.append(name)
         save_attributes_to_hdf5_group(fh_dict, g.name, 'weight_names', weight_names)
         for name, val in zip(weight_names, weight_values):
-            param_dset = g.create_dataset(name, val.shape, dtype=val.dtype, compression=compression)
+            param_dset = g.create_dataset(name, val.shape, dtype=val.dtype, compression=(compression if val.shape else None))
             if not val.shape:
                 # scalar
                 param_dset[()] = val
@@ -702,7 +703,7 @@ def save_loss_weights_to_hdf5_group(f, fh_dict, loss_weights, compress=False):
     # Dump variables into hdf5 set.
     weight_values = K.batch_get_value(symbolic_weights)
     for name, val in zip(weight_names, weight_values):
-        param_dset = f.create_dataset(name, val.shape, dtype=val.dtype, compression=compression)
+        param_dset = f.create_dataset(name, val.shape, dtype=val.dtype, compression=(compression if val.shape else None))
         if not val.shape:
             # scalar
             param_dset[()] = val

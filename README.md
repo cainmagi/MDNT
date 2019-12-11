@@ -69,6 +69,7 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 1. Fix some bugs and add features in `.utilities.draw`.
 2. Add `webfiles.zip` for `.utilities.tboard`.
+3. Fix a small bug in `.utilities`.
 
 ### 0.78 @ 11/27/2019
 

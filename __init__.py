@@ -18,6 +18,7 @@
 # Comments:
 #   1. Fix some bugs and add features in .utilities.draw.
 #   2. Add webfiles.zip for .utilities.tboard.
+#   3. Fix a small bug in .utilities.
 # Version: 0.78 # 2019/11/27
 # Comments:
 #   1. Enhance the save_model/load_model for supportting
