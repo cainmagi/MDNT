@@ -10,6 +10,9 @@
 # Warning:
 #   The standard tf dataset is proved to be incompatible with 
 #   tf-K architecture. We need to wait until tf fix the bug.
+# Version: 0.26 # 2020/02/10
+# Comments:
+#   1. Provide a converter to transform dataset formats.
 # Version: 0.24 # 2019/10/23
 # Comments:
 #   1. Finsish `H5VGParser` for splitting valid set from a
@@ -46,6 +49,145 @@ import h5py
 import numpy as np
 import tensorflow as tf
 import os
+import io
+
+class H52TXT:
+    '''An example of converter between HDF5 and TXT'''
+    
+    def read(self, fileName):
+        '''read function, for converting TXT to HDF5.
+        fileName is the name of the single input file'''
+        with open(os.path.splitext(fileName)[0] + '.txt', 'r') as f:
+            sizeText = io.StringIO(f.readline())
+            sze = np.loadtxt(sizeText, dtype=np.int)
+            data = np.loadtxt(f, dtype=np.float32)
+            return np.reshape(data, sze)
+    
+    def write(self, h5data, fileName):
+        '''write function, for converting HDF5 to TXT.
+        fileName is the name of the single output file.'''
+        with open(os.path.splitext(fileName)[0] + '.txt', 'w') as f:
+            np.savetxt(f, np.reshape(h5data.shape, (1, h5data.ndim)), fmt='%d')
+            if h5data.ndim > 1:
+                for i in range(h5data.shape[0]):
+                    np.savetxt(f, h5data[i, ...].ravel(), delimiter='\n')
+            else:
+                np.savetxt(f, h5data[:].ravel(), delimiter='\n')
+
+class H52BIN:
+    '''An example of converter between HDF5 and bin file'''
+    
+    def read(self, fileName):
+        '''read function, for converting bin file to HDF5.
+        fileName is the name of the single input file'''
+        with open(os.path.splitext(fileName)[0] + '.bin', 'rb') as f:
+            ndims = np.fromfile(f, dtype=np.int, count=1)[0]
+            sze = np.fromfile(f, dtype=np.int, count=ndims)
+            data = np.fromfile(f, dtype=np.float32, count=-1)
+            return np.reshape(data, sze)
+    
+    def write(self, h5data, fileName):
+        '''write function, for converting HDF5 to bin file.
+        fileName is the name of the single output file.'''
+        with open(os.path.splitext(fileName)[0] + '.bin', 'wb') as f:
+            get_ndim = np.array(h5data.ndim)
+            get_shape = np.array(h5data.shape)
+            get_ndim.tofile(f)
+            get_shape.tofile(f)
+            if get_ndim > 1:
+                for i in range(get_shape[0]):
+                    h5data[i, ...].ravel().astype(np.float32).tofile(f)
+            else:
+                h5data[:].ravel().astype(np.float32).tofile(f)
+
+class H5Converter:
+    '''Conversion between HDF5 data and other formats.
+    The "other formats" would be arranged in to form of several
+    folders and files. Each data group would be mapped into a
+    folder, and each dataset would be mapped into a file.
+    '''
+    def __init__(self, fileName, oformat, toOther=True):
+        '''
+        Initialization and set format.
+        Arguments:
+            fileName: a path where we find the dataset. If the
+                      conversion is h52other, the path should
+                      refer a folder containing several subfiles,
+                      otherwise, it should refer an HD5 file.
+            oformat:  the format function for a single dataset,
+                      it could be provided by users, or use the
+                      default configurations. (avaliable: 'txt',
+                      'bin'.)
+            toOther:  the flag for conversion mode. If set True,
+                      the mode would be h52other, i.e. an HDF5
+                      set would be converted into other formats.
+                      If set False, the conversion would be
+                      reversed.
+        '''
+        self.__read = (not toOther)
+        self.folder = os.path.splitext(fileName)[0]
+        if not self.__read:
+            if not os.path.isfile(fileName):
+                if (os.path.isfile(fileName+'.h5')):
+                    fileName += '.h5'
+                    self.folder = os.path.splitext(fileName)[0]
+                else:
+                    raise FileNotFoundError('Could not read the HDF5 dataset: {0}.'.format(fileName))
+            if os.path.exists(self.folder):
+                raise FileExistsError('Could not write to the folder: {0}, because it already exists.'.format(self.folder))
+        else:
+            if not os.path.isdir(fileName):
+                raise FileNotFoundError('Could not open the folder {0}.'.format(fileName))
+            if os.path.exists(fileName+'.h5'):
+                raise FileExistsError('Could not write to the HDF5 dataset {0}.h5, because it already exists.'.format(fileName))
+            self.folder = fileName
+            fileName = fileName + '.h5'
+        self.f = h5py.File(fileName, 'w' if self.__read else 'r')
+        
+        if oformat == 'txt':
+            self.__func = H52TXT()
+        elif oformat == 'bin':
+            self.__func = H52BIN()
+        else:
+            if self.__read:
+                if not hasattr(oformat, 'write'):
+                    raise AttributeError('The "oformat" should contains the write method for applying the conversion.')
+            else:
+                if not hasattr(oformat, 'read'):
+                    raise AttributeError('The "oformat" should contains the read method for applying the conversion.')
+            self.__func = oformat
+
+    @staticmethod
+    def __h5iterate(g, func):
+        if isinstance(g, h5py.Dataset):
+            func(g)
+        else:
+            for item in g:
+                H5Converter.__h5iterate(g[item], func)
+
+    def __savefunc(self, g):
+        path = os.path.join(self.folder, g.name.replace(':', '-')[1:])
+        folder = os.path.split(path)[0]
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+        self.__func.write(g, path)
+        print('Have dumped {0}'.format(g.name))
+
+    def __h52other(self):
+        self.__h5iterate(self.f, self.__savefunc)
+    
+    def __other2h5(self):
+        for root, _, files in os.walk(self.folder, topdown=False):
+            for name in files:
+                dsetName = '/'+ os.path.relpath(os.path.join(root, os.path.splitext(name)[0]), start=self.folder).replace('\\', '/')
+                self.f.create_dataset(dsetName, data=self.__func.read(os.path.join(root, name)))
+                print('Have dumped {0}'.format(dsetName))
+
+    def convert(self):
+        if self.__read:
+            self.__other2h5()
+        else:
+            self.__h52other()
 
 class H5SupSaver:
     '''Save supervised data set as .h5 file

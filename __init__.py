@@ -14,6 +14,9 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.79 # 2020/02/10
+# Comments:
+#   1. Finish H5Converter in .data.
 # Version: 0.78-b # 2019/12/05
 # Comments:
 #   1. Fix some bugs and add features in .utilities.draw.

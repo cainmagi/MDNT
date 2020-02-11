@@ -65,6 +65,10 @@ Check the branch [`demos`][brch-demos] to learn more details.
 
 ## Update records
 
+### 0.79 @ 02/10/2020
+
+1. Finish H5Converter  `H5Converter` in `.data`.
+
 ### 0.78-b @ 12/05/2019
 
 1. Fix some bugs and add features in `.utilities.draw`.
