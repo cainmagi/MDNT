@@ -10,6 +10,10 @@
 # Extended figure drawing tools. This module is based on
 # matplotlib and provides some fast interfacies for drawing
 # some specialized figures (like loss function).
+# Version: 0.27 # 2020/8/30
+# Comments:
+#   1. Fix a bug in plot_hist.
+#   2. Add the mean position to plot_hist.
 # Version: 0.25 # 2019/12/05
 # Comments:
 #   1. Finish plot_distribution_curves.
@@ -140,6 +144,7 @@ def fixLogAxis(ax=None, axis='y'):
         ax.set_xlim(*np.power(10.0, [xmin, xmax]))
 
 def plot_hist(gen, normalized=False, cumulative=False,
+              show_mean=False,
               xlabel='Value', ylabel='Number of samples',
               x_log=False, y_log=False,
               figure_size=(6, 5.5),
@@ -152,6 +157,7 @@ def plot_hist(gen, normalized=False, cumulative=False,
             iteration. For each iteration it returns 1 1D data.
         normalized: whether to use normalization for each group
             when drawing the histogram.
+        show_mean: whether to show the mean value of each group.
         xlabel: the x axis label.
         ylabel: the y axis label.
         x_log: whether to convert the x axis into the log repre-
@@ -170,15 +176,16 @@ def plot_hist(gen, normalized=False, cumulative=False,
     # Begin to parse data
     hasLabel = False
     for data in gen:
+        kwargs = {'alpha': 0.8}
         c = next(cit)
         if isinstance(data, (tuple, list)) and len(data)>1 and isinstance(data[-1], dict):
-            kwargs = data[-1]
+            kwargs.update(data[-1])
             data = data[0]
-        else:
-            kwargs = dict()
         hasLabel = 'label' in kwargs
         kwargs.update(c)
-        plt.hist(data, alpha=0.8, density=normalized, cumulative=cumulative, log=y_log, **kwargs)
+        h_res = plt.hist(data, density=normalized, cumulative=cumulative, log=y_log, **kwargs)
+        if show_mean:
+            plt.axvline(data.mean(), linestyle='dashed', linewidth=1.5, **c)
     if ylabel:
         plt.ylabel(ylabel)
     if xlabel:
@@ -708,3 +715,4 @@ if __name__ == '__main__':
     test_training_records()
     test_error_bar()
     test_distribution()
+    

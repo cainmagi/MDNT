@@ -35,6 +35,8 @@ from tensorflow.contrib.opt.python.training import weight_decay_optimizers
 from tensorflow.python.platform import tf_logging as logging
 from .adaptive import MNadam, Adabound, Nadabound
 
+from .. import compat
+
 def _raise_TF_warn():
     logging.warning('You are using TFOptimizer in this case. '
                   'It does not support saveing/loading optimizer'
@@ -86,6 +88,8 @@ def optimizer(name='adam', l_rate=0.01, decay=0.0, **kwargs):
     elif name == 'adagrad':
         return optimizers.Adagrad(l_rate, decay=decay, **kwargs)
     elif name == 'adamw':
+        if compat.COMPATIBLE_MODE['1.14']:
+            raise ImportError('This optimizer is not allowed for compatibility, because it require contrib lib.')
         _raise_TF_warn()
         if decay != 0.0:
             logging.warning('This optimizer uses \'decay\' as \'weight_decay\'.')

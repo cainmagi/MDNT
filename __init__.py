@@ -14,6 +14,12 @@
 # utilites from other modules. However, it will provide some
 # tools with the same/similar name and functions compared to
 # plain tensorflow-keras.
+# Version: 0.80 # 2020/08/30
+# Comments:
+#   1. Extend the compatible mode.
+#   2. Fix bugs and add features in .utilities.draw.
+#   3. Add features in .data.h5py
+#   4. Fix bugs in .layers.activation.
 # Version: 0.79 # 2020/02/10
 # Comments:
 #   1. Finish H5Converter in .data.
@@ -226,7 +232,7 @@ from . import data
 from . import functions
 from . import utilities
 
-__version__ = '0.73-b'
+__version__ = '0.80'
 
 # Alias
 save_model = utilities.save_model

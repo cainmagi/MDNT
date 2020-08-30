@@ -39,7 +39,7 @@ from tensorflow.python.ops import standard_ops
 from tensorflow.python.ops import variables
 
 from .. import compat
-if compat.COMPATIBLE_MODE:
+if compat.COMPATIBLE_MODE['1.12']:
     from tensorflow.python.keras.engine.base_layer import InputSpec
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec

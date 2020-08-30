@@ -120,7 +120,7 @@ class PyExternal(Layer):
         # Define ops with first-order gradients
         @custom_gradient.custom_gradient
         def _external_func(*x):
-            y = script_ops.eager_py_func(self.forward, x, self.Tout)
+            y = script_ops.eager_py_func(self.forward, x, self.Tout, name='pyfunc')
             def _external_func_grad(*grad):
                 iList = []
                 if self.xEnable:

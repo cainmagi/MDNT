@@ -8,6 +8,9 @@
 #   tensorflow r1.13+
 # Extend the activation layer APIs. It allows more useful
 # functions for building a complicated network.
+# Version: 0.20 # 2020/8/30
+# Comments:
+#   Fix a fatal bug in Slice().
 # Version: 0.17 # 2019/10/27
 # Comments:
 #   Remove the "c" variable (slack variable) for RestrictSub,
@@ -45,7 +48,7 @@ from tensorflow.python.ops import nn_ops
 from .utils import normalize_abtuple, normalize_slices, slice_len_for
 
 from .. import compat
-if compat.COMPATIBLE_MODE:
+if compat.COMPATIBLE_MODE['1.12']:
     from tensorflow.python.keras.engine.base_layer import InputSpec
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec
@@ -470,8 +473,8 @@ class Slice(Layer):
                 if i == d:
                     get_slices.append(s)
                     break
-            else:
-                get_slices.append(slice(None))
+                else:
+                    get_slices.append(slice(None))
         return inputs[get_slices]
 
     def get_config(self):

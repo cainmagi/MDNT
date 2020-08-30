@@ -103,7 +103,7 @@ from .conv import _AConv
 from .dropout import return_dropout
 
 from .. import compat
-if compat.COMPATIBLE_MODE:
+if compat.COMPATIBLE_MODE['1.12']:
     from tensorflow.python.keras.engine.base_layer import InputSpec
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec

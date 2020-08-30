@@ -10,6 +10,11 @@
 # Warning:
 #   The standard tf dataset is proved to be incompatible with 
 #   tf-K architecture. We need to wait until tf fix the bug.
+# Version: 0.30 # 2020/08/30
+# Comments:
+#   1. Enable `H5VGParser` and `H5GParser` to force the sample
+#      number of each epoch fixed. This configuration is
+#      useful when the dataset is huge.
 # Version: 0.26 # 2020/02/10
 # Comments:
 #   1. Provide a converter to transform dataset formats.
@@ -481,14 +486,22 @@ class H5VGParser:
     This is a factory class. It accepts the same arguments of H5GParser,
     but split the dataset into a train set and a valid set.
     '''
-    def __init__(self, fileName, keywords, batchSize=32, shuffle=True, preprocfunc=None):
+    def __init__(self, fileName, keywords, batchSize=32, force_epoch=None, shuffle=True, preprocfunc=None):
         '''
         Initialize the H5VGParser. This parser could not be used directly, it requires users to call
         a split method and get two H5GParsers.
         '''
-        self.trainSet = H5GParser(fileName, keywords, batchSize, shuffle, preprocfunc, _hasValidator=True)
-        self.validSet = H5GParser(fileName, keywords, batchSize, shuffle, preprocfunc, _hasValidator=True)
+        self.trainSet = H5GParser(fileName, keywords, batchSize, None, shuffle, preprocfunc, _hasValidator=True)
+        self.validSet = H5GParser(fileName, keywords, batchSize, None, shuffle, preprocfunc, _hasValidator=True)
+        self.force_epoch = force_epoch
         self.size = self.trainSet.size
+        
+    def __set_force_epoch(self, validRate):
+        if self.force_epoch:
+            force_epoch_valid = int(validRate * self.force_epoch)
+            force_epoch_train = self.force_epoch - force_epoch_valid
+            self.trainSet.set_force_epoch(force_epoch=force_epoch_train)
+            self.validSet.set_force_epoch(force_epoch=force_epoch_valid)
 
     def numberSplit(self, validRate=0.1):
         '''
@@ -506,6 +519,7 @@ class H5VGParser:
         allInd = np.arange(self.size, dtype=np.int)
         self.trainSet.applyValidator(allInd[:trainSize])
         self.validSet.applyValidator(allInd[trainSize:])
+        self.__set_force_epoch(validRate)
 
     def randomSplit(self, validRate=0.1, seed=None):
         '''
@@ -538,6 +552,7 @@ class H5VGParser:
         trainInd = np.asarray(trainInd, dtype=np.int)
         self.trainSet.applyValidator(trainInd)
         self.validSet.applyValidator(validInd)
+        self.__set_force_epoch(validRate)
 
 class H5GParser(tf.keras.utils.Sequence):
     '''Grouply parsing dataset
@@ -554,13 +569,17 @@ class H5GParser(tf.keras.utils.Sequence):
             index dataset.
     Certainly, you could use this parser to load a single dataset.
     '''
-    def __init__(self, fileName, keywords, batchSize=32, shuffle=True, preprocfunc=None, _hasValidator=False):
+    def __init__(self, fileName, keywords, batchSize=32, force_epoch=None, shuffle=True, preprocfunc=None, _hasValidator=False):
         '''
         Create the parser and its h5py file handle.
         Arguments:
             fileName: the data path of the file (could be without postfix).
             keywords: should be a list of keywords (or a single keyword).
             batchSize: number of samples in each batch.
+            force_epoch: force the epoch number. If set this value, the
+                         actual size of the dataset would be ignored.
+                         Instead, the step number of each epoch would
+                         be set as this value.
             shuffle: if on, shuffle the data set at the end of each epoch.
             preprocfunc: this function would be added to the produced data
                          so that it could serve as a pre-processing tool.
@@ -590,6 +609,14 @@ class H5GParser(tf.keras.utils.Sequence):
         self.__preprocfunc = preprocfunc
         self.__batchSize = batchSize
         self.__dsize = len(self.__dsets)
+        
+        # Calculate the actual steps according to the dataset sizes.
+        self.__epoch_size = np.ceil(np.sum(self.size)/self.__batchSize).astype(np.int)
+        # For the epoch size if need.
+        self.__is_idx_fc = False
+        self.__fc_idx = 0
+        self.__fc_size = None
+        self.set_force_epoch(force_epoch)
     
     def applyValidator(self, validIndices):
         '''
@@ -598,17 +625,43 @@ class H5GParser(tf.keras.utils.Sequence):
         '''
         self.__indices = validIndices
         self.size = len(validIndices)
+        self.__epoch_size = np.ceil(np.sum(self.size)/self.__batchSize).astype(np.int)
         if self.shuffle:
             self.__shuffle()
+            
+    def set_force_epoch(self, force_epoch=None):
+        self.__is_idx_fc = bool(force_epoch)
+        self.__fc_idx = 0
+        if not self.__is_idx_fc:
+            self.__fc_size = None
+        else:
+            self.__fc_size = int(force_epoch)
         
     def __len__(self):
         '''
         Automatically calculate the steps for iterate the whole dataset.
         '''
-        return np.ceil(np.sum(self.size)/self.__batchSize).astype(np.int)
+        if self.__is_idx_fc:
+            return self.__fc_size
+        else:
+            return self.__epoch_size
         
     def __getitem__(self, idx):
-        batchIndices = self.__indices[idx * self.__batchSize:(idx + 1) * self.__batchSize]
+        # Reset idx if set force.
+        if self.__is_idx_fc:
+            idx = self.__fc_idx
+            batchIndices = self.__indices[idx * self.__batchSize:(idx + 1) * self.__batchSize]
+            # Set the cur idx of the forced mode.
+            idx += 1
+            if idx < self.__epoch_size:
+                self.__fc_idx = idx
+            else: # Detect shuffle event.
+                self.__fc_idx = 0
+                if self.shuffle:
+                    self.__shuffle()
+        else:
+            batchIndices = self.__indices[idx * self.__batchSize:(idx + 1) * self.__batchSize]
+        # Arrange batch.
         res = []
         for j in range(self.__dsize):
             res.append([])
@@ -627,7 +680,7 @@ class H5GParser(tf.keras.utils.Sequence):
         '''
         Shuffle the data set according to the settings.
         '''
-        if self.shuffle:
+        if self.shuffle and (not self.__is_idx_fc):
             self.__shuffle()
         
     def __creatDataSets(self):

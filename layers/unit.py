@@ -56,7 +56,7 @@ from .normalize import InstanceNormalization, GroupNormalization
 from .conv import _GroupConv, _get_macro_conv
 
 from .. import compat
-if compat.COMPATIBLE_MODE:
+if compat.COMPATIBLE_MODE['1.12']:
     from tensorflow.python.keras.engine.base_layer import InputSpec
 else:
     from tensorflow.python.keras.engine.input_spec import InputSpec
